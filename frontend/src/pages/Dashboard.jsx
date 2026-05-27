@@ -22,10 +22,22 @@ export default function Dashboard() {
     setError(null);
     try {
       const response = await API.get('/emails/unread');
-      setEmails(response.data);
+      const fetchedEmails = response.data || [];
+
+      // Pre-populate the AI insights cache from the fetched emails' bulk analyses
+      const prePopulatedCache = {};
+      fetchedEmails.forEach(email => {
+        if (email.ai_analysis) {
+          prePopulatedCache[email.id] = email.ai_analysis;
+        }
+      });
+      setAiInsightsCache(prePopulatedCache);
+
+      setEmails(fetchedEmails);
+      
       // Select the first email automatically if emails exist and none is selected
-      if (response.data.length > 0) {
-        setSelectedEmail(response.data[0]);
+      if (fetchedEmails.length > 0) {
+        setSelectedEmail(fetchedEmails[0]);
       } else {
         setSelectedEmail(null);
       }
