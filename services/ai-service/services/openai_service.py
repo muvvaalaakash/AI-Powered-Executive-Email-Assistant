@@ -1,7 +1,7 @@
+import os
 import google.generativeai as genai
 from pydantic import BaseModel, Field
 from fastapi import HTTPException
-from config.settings import settings
 import json
 
 class EmailAnalysis(BaseModel):
@@ -18,25 +18,31 @@ class EmailAnalysisItem(BaseModel):
 class BulkEmailAnalysis(BaseModel):
     analyses: list[EmailAnalysisItem] = Field(description="List of email analyses matching the input email IDs.")
 
-
-def analyze_email_content(email_content: str) -> EmailAnalysis:
+def get_api_key() -> str:
     """
-    Sends the email content to Google's gemini-2.5-flash model using Structured Outputs.
-    Returns a validated EmailAnalysis Pydantic model containing summary, priority, and reply.
+    Resolves the Gemini API Key from environment variables.
     """
-    api_key = settings.GEMINI_API_KEY
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    openai_key = os.getenv("OPENAI_API_KEY", "")
+    
+    api_key = gemini_key
     if not api_key or api_key.startswith("your_"):
-        # Fallback in case they pasted the Gemini API key in the OPENAI_API_KEY slot
-        if settings.OPENAI_API_KEY and settings.OPENAI_API_KEY.startswith("AIza"):
-            api_key = settings.OPENAI_API_KEY
-
+        if openai_key and openai_key.startswith("AIza"):
+            api_key = openai_key
+            
     if not api_key or api_key.startswith("your_"):
         raise HTTPException(
             status_code=500,
-            detail="Gemini API Key (GEMINI_API_KEY) is not configured on the server. Please visit Google AI Studio to get a free key."
+            detail="Gemini API Key (GEMINI_API_KEY) is not configured on the AI microservice."
         )
+    return api_key
 
-    # Configure the Gemini API client
+def analyze_email_content(email_content: str) -> EmailAnalysis:
+    """
+    Sends the email content to Google's gemini-flash-latest model using Structured Outputs.
+    Returns a validated EmailAnalysis Pydantic model.
+    """
+    api_key = get_api_key()
     genai.configure(api_key=api_key)
 
     system_instruction = (
@@ -53,13 +59,11 @@ def analyze_email_content(email_content: str) -> EmailAnalysis:
     )
 
     try:
-        # Create GenerativeModel instance with the system instructions
         model = genai.GenerativeModel(
             model_name="gemini-flash-latest",
             system_instruction=system_instruction
         )
 
-        # Call generate_content requesting JSON output matching the EmailAnalysis Pydantic schema
         response = model.generate_content(
             f"Analyze the following email content:\n\n{email_content}",
             generation_config=genai.GenerationConfig(
@@ -71,13 +75,11 @@ def analyze_email_content(email_content: str) -> EmailAnalysis:
         if not response.text:
             raise HTTPException(status_code=500, detail="Gemini failed to return content response.")
 
-        # Parse the JSON response text back into the Pydantic model
         parsed_result = EmailAnalysis.model_validate_json(response.text)
         return parsed_result
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gemini API invocation failed: {str(e)}")
-
 
 def analyze_emails_bulk(emails: list[dict]) -> dict[str, EmailAnalysisItem]:
     """
@@ -87,21 +89,11 @@ def analyze_emails_bulk(emails: list[dict]) -> dict[str, EmailAnalysisItem]:
     if not emails:
         return {}
 
-    api_key = settings.GEMINI_API_KEY
-    if not api_key or api_key.startswith("your_"):
-        if settings.OPENAI_API_KEY and settings.OPENAI_API_KEY.startswith("AIza"):
-            api_key = settings.OPENAI_API_KEY
-
-    if not api_key or api_key.startswith("your_"):
-        raise Exception("Gemini API Key (GEMINI_API_KEY) is not configured on the server.")
-
-    # Configure the Gemini API client
+    api_key = get_api_key()
     genai.configure(api_key=api_key)
 
-    # Format the prompt
     email_prompts = []
     for email in emails:
-        # Truncate body snippet to conserve context tokens and speed up response times
         body_snippet = (email.get("body") or email.get("snippet") or "")[:1200]
         email_prompts.append(
             f"EMAIL ID: {email.get('id')}\n"
@@ -144,10 +136,7 @@ def analyze_emails_bulk(emails: list[dict]) -> dict[str, EmailAnalysisItem]:
         if not response.text:
             raise Exception("Gemini returned an empty bulk response.")
 
-        # Validate with Pydantic
         bulk_data = BulkEmailAnalysis.model_validate_json(response.text)
-        
-        # Convert to dictionary mapping id -> item
         result_dict = {item.id: item for item in bulk_data.analyses}
         return result_dict
 

@@ -1,0 +1,85 @@
+version: '3.8'
+
+networks:
+  aero-net:
+    driver: bridge
+
+services:
+  frontend:
+    build:
+      context: ./services/frontend
+      args:
+        - VITE_API_URL=
+    container_name: frontend-service
+    ports:
+      - "80:80"
+    networks:
+      - aero-net
+    depends_on:
+      api-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  api-service:
+    build:
+      context: ./services/api-service
+    container_name: api-service
+    networks:
+      - aero-net
+    expose:
+      - "8000"
+    environment:
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - GMAIL_SERVICE_URL=http://gmail-service:8000
+      - AI_SERVICE_URL=http://ai-service:8000
+    depends_on:
+      gmail-service:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  gmail-service:
+    build:
+      context: ./services/gmail-service
+    container_name: gmail-service
+    networks:
+      - aero-net
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  ai-service:
+    build:
+      context: ./services/ai-service
+    container_name: ai-service
+    networks:
+      - aero-net
+    expose:
+      - "8000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

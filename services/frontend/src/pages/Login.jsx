@@ -14,7 +14,7 @@ export default function Login() {
 
   const handleLogin = () => {
     // Redirect user to backend auth endpoint
-    const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const backendUrl = import.meta.env.VITE_API_URL !== undefined && import.meta.env.VITE_API_URL !== null ? import.meta.env.VITE_API_URL : 'http://localhost:8000';
     window.location.href = `${backendUrl}/auth/login`;
   };
 
