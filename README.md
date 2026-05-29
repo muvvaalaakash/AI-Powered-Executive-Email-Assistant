@@ -1,142 +1,128 @@
-# AeroInbox: AI-Powered Executive Email Assistant MVP
+# AeroInbox: AI-Powered Executive Email Assistant (Microservices)
 
-AeroInbox is a real-world, industry-level email intelligence assistant built for managers, founders, and CEOs to reduce the time spent reading, organizing, and replying to emails. It connects securely to Gmail, fetches unread mail, uses OpenAI `gpt-4o-mini` to extract structured executive summaries, computes priority levels, and draft responses.
+AeroInbox is a real-world, production-ready email intelligence assistant built for managers, founders, and CEOs to minimize time spent reading and replying to emails. It connects securely to Gmail, fetches unread mail, uses Google Gemini (`gemini-flash-latest`) to extract structured executive summaries, classifies priorities in bulk on sync, and drafts response options.
 
-## Key Features
-- **Secure Gmail Authentication**: Fully stateless OAuth 2.0 flow.
-- **On-Demand AI Analysis**: Processes single emails to control token costs and speed up response times.
-- **Executive Summary & Priority Badging**: Sorts emails into High, Medium, and Low priorities instantly.
-- **Draft Copy Actions**: Generate high-quality professional drafts with one-click copy capability.
+Decomposed into a **4-tier microservices architecture** configured to deploy on a single machine or Azure Virtual Machine via Docker Compose.
+
+---
+
+## Architecture Diagram
+
+```
+                 Internet
+                    │
+                    ▼ (Port 80)
+        +-----------------------+
+        |  Nginx Reverse Proxy  |
+        |  (Frontend Container) |
+        +-----------------------+
+                    │
+                    ▼ (Proxy Pass /auth or /emails)
+        +-----------------------+
+        |      API Service      | (Orchestrator Gateway :8000)
+        +-----------------------+
+          /                   \
+         / (Internal HTTP)     \ (Internal HTTP)
+        ▼                       ▼
++---------------+       +---------------+
+| Gmail Service | :8000 |  AI Service   | :8000
++---------------+       +---------------+
+        │                       │
+        ▼                       ▼
+   Gmail API                Gemini API
+```
 
 ---
 
 ## Folder Structure
 
 ```
-ai-executive-assistant/
-├── backend/                  # FastAPI Backend
-│   ├── config/               # Settings & Configuration (Pydantic)
-│   ├── routes/               # API Router Handlers (Auth, Email, AI)
-│   ├── services/             # Core Integrations (Gmail, OpenAI)
-│   ├── main.py               # Application bootstrap
-│   ├── requirements.txt      # Python package list
-│   └── .env                  # Backend credentials config
-│
-└── frontend/                 # React SPA (Vite + Tailwind CSS v4)
-    ├── src/
-    │   ├── components/       # Visual elements (Sidebar, Header, cards)
-    │   ├── pages/            # View frames (Login, Dashboard, Callback)
-    │   ├── services/         # Axios API Client interceptors
-    │   ├── App.jsx           # Routing index
-    │   └── main.jsx          # Entry point script
-    ├── vite.config.js        # Vite & Tailwind compilation plugin
-    ├── package.json          # Node packages and build metadata
-    └── .env                  # Frontend build configs
+Ai_Assistan_Email/
+├── docker-compose.yml     # Central container orchestration config
+├── .env.example           # Environment template
+├── services/
+│   ├── frontend/          # React SPA build, served via custom Nginx config (Port 80)
+│   ├── api-service/       # Gateway, OAuth handling, and route orchestrator (Internal Port 8000)
+│   ├── gmail-service/     # Gmail API reading, body decoding, and extraction (Internal Port 8000)
+│   └── ai-service/        # Structured email analysis using Gemini 1.5 Flash (Internal Port 8000)
 ```
 
 ---
 
+## Key Features
+- **Stateless OAuth 2.0 Auth**: Fully secure, token-refresh supported auth loop.
+- **Bulk Priority Classification**: Automatically scans and labels all unread emails (**High**, **Medium**, **Low**) during sync, displaying badges on the dashboard list instantly.
+- **Gemini Free Tier Integration**: Uses `gemini-flash-latest` (Gemini 1.5 Flash) via Google AI Studio, granting **1500 free daily requests** and avoiding low trial limits.
+- **Single Public Port (Port 80)**: Only Nginx is exposed. All service-to-service routing happens inside a private Docker bridge network (`aero-net`).
+
+---
+
 ## Prerequisites
-- **Python 3.9+**
-- **Node.js 18+**
+- **Docker** and **Docker Compose (v2+)**
 - **Google Cloud Platform Project** with Gmail API enabled and OAuth Web Application credentials set up.
-- **OpenAI API Key** (access to `gpt-4o-mini`).
+- **Google Gemini API Key** (Get one for free from [Google AI Studio](https://aistudio.google.com/)).
 
 ---
 
 ## Local Setup & Run
 
-### 1. Backend Setup
-1. Open a terminal and navigate to the `backend/` folder:
+1. Clone the repository:
    ```bash
-   cd backend
+   git clone <repository_url> aeroinbox
+   cd aeroinbox
    ```
-2. Create and activate a Python virtual environment:
-   ```bash
-   python -m venv venv
-   # On Windows (PowerShell):
-   .\venv\Scripts\Activate.ps1
-   # On macOS/Linux:
-   source venv/bin/activate
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Configure your environment variables. Open `.env` and fill in the values:
-   ```env
-   OPENAI_API_KEY=your_openai_api_key
-   GOOGLE_CLIENT_ID=your_gcp_client_id.apps.googleusercontent.com
-   GOOGLE_CLIENT_SECRET=your_gcp_client_secret
-   GOOGLE_REDIRECT_URI=http://localhost:8000/auth/callback
-   FRONTEND_URL=http://localhost:5173
-   ```
-5. Start the FastAPI development server:
-   ```bash
-   uvicorn main:app --reload
-   ```
-   The backend API will run on `http://localhost:8000`. You can inspect the Swagger interactive documentation at `http://localhost:8000/docs`.
 
-### 2. Frontend Setup
-1. Open a new terminal and navigate to the `frontend/` folder:
+2. Configure your environment variables. Copy `.env.example` to `.env` and fill in the values:
    ```bash
-   cd frontend
+   cp .env.example .env
    ```
-2. Install npm packages:
+   *For local Docker Compose running, keep `GOOGLE_REDIRECT_URI=http://localhost/auth/callback` and `FRONTEND_URL=http://localhost`.*
+
+3. Build and spin up the containers:
    ```bash
-   npm install
+   docker compose build --build-arg VITE_API_URL=""
+   docker compose up -d
    ```
-3. Configure the frontend API endpoint in `.env`:
-   ```env
-   VITE_API_URL=http://localhost:8000
-   ```
-4. Spin up the Vite development server:
-   ```bash
-   npm run dev
-   ```
-   Open `http://localhost:5173` in your browser.
+
+4. Open `http://localhost` in your browser.
 
 ---
 
-## Google Cloud Credentials Configuration
+## Azure VM Deployment
 
-Ensure your Google OAuth 2.0 configuration has the following:
-1. **Authorized JavaScript origins**: `http://localhost:5173`
-2. **Authorized redirect URIs**: `http://localhost:8000/auth/callback`
-3. **Enabled Scopes**:
-   - `openid`
-   - `https://www.googleapis.com/auth/userinfo.email`
-   - `https://www.googleapis.com/auth/userinfo.profile`
-   - `https://www.googleapis.com/auth/gmail.readonly`
+### 1. VM Sizing & Firewalls
+- **Instance**: `Standard_B2s` (2 vCPUs, 4GB RAM) or `Standard_B1ms` (1 vCPU, 2GB RAM) running Ubuntu 24.04 LTS.
+- **Open Ports**: Open port **80** (HTTP) and port **22** (SSH) in the Azure Network Security Group (NSG) configurations.
 
----
+### 2. Install Docker & Compose on Ubuntu VM
+Connect to your VM via SSH and run:
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose-v2
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker $USER
+```
+*(Log out of the SSH session and log back in for permissions to take effect)*.
 
-## Azure Production Deployment
+### 3. Clone and Start Services
+```bash
+# Clone the repository
+git clone <repository_url> aeroinbox
+cd aeroinbox
 
-### 1. Backend Deployment (Azure App Service - F1 Free Tier)
-1. In the Azure Portal, create a new **Web App**:
-   - **Runtime Stack**: Python (choose your version, e.g., Python 3.11).
-   - **Operating System**: Linux.
-   - **Pricing Plan**: Free F1.
-2. In your Web App's **Configuration / Environment Variables** section, add:
-   - `OPENAI_API_KEY`
-   - `GOOGLE_CLIENT_ID`
-   - `GOOGLE_CLIENT_SECRET`
-   - `GOOGLE_REDIRECT_URI` (update to `https://<your-app-service-name>.azurewebsites.net/auth/callback`)
-   - `FRONTEND_URL` (update to the Azure Static Web Apps URL)
-3. Set the startup command to:
-   ```bash
-   gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app
-   ```
-4. Deploy the contents of the `backend/` folder via GitHub Actions or Git Local.
+# Configure environment
+cp .env.example .env
+nano .env
+```
+> [!IMPORTANT]
+> Change the variables in `.env` to match your VM's public IP:
+> - `GOOGLE_REDIRECT_URI=http://<YOUR_VM_PUBLIC_IP>/auth/callback`
+> - `FRONTEND_URL=http://<YOUR_VM_PUBLIC_IP>`
 
-### 2. Frontend Deployment (Azure Static Web Apps)
-1. Create a new **Static Web App** in Azure.
-2. Select your repository and specify the deployment configuration:
-   - **App location**: `/frontend`
-   - **Api location**: (Leave blank, as we run FastAPI on App Service)
-   - **Output location**: `dist`
-3. In Azure Static Web Apps dashboard, under Environment variables, set:
-   - `VITE_API_URL` = `https://<your-app-service-name>.azurewebsites.net`
-4. Deploy the build via the automatically configured GitHub Action workflow.
-5. Make sure to update the **GCP Console Credentials** with the production URL of your backend callback and frontend origin.
+Build and run:
+```bash
+docker compose build --build-arg VITE_API_URL=""
+docker compose up -d
+```
+Inspect health checks using `docker compose ps`. Access the app at `http://<YOUR_VM_PUBLIC_IP>`.
