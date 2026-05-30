@@ -6,10 +6,7 @@ networks:
 
 services:
   frontend:
-    build:
-      context: ./services/frontend
-      args:
-        - VITE_API_URL=
+    image: mvnsakash/aeroinbox-frontend:v1
     container_name: frontend-service
     ports:
       - "80:80"
@@ -25,8 +22,7 @@ services:
       retries: 3
 
   api-service:
-    build:
-      context: ./services/api-service
+    image: mvnsakash/aeroinbox-api:v1
     container_name: api-service
     networks:
       - aero-net
@@ -52,8 +48,7 @@ services:
       start_period: 5s
 
   gmail-service:
-    build:
-      context: ./services/gmail-service
+    image: mvnsakash/aeroinbox-gmail:v1
     container_name: gmail-service
     networks:
       - aero-net
@@ -67,8 +62,7 @@ services:
       start_period: 5s
 
   ai-service:
-    build:
-      context: ./services/ai-service
+    image: mvnsakash/aeroinbox-ai:v1
     container_name: ai-service
     networks:
       - aero-net
