@@ -15,6 +15,14 @@ export default function Dashboard() {
   const [aiInsightsCache, setAiInsightsCache] = useState({});
   const [aiLoading, setAiLoading] = useState(false);
   const [activeSection, setActiveSection] = useState("inbox"); // 'inbox' or 'spam'
+  
+  // Search state
+  const [isSearchActive, setIsSearchActive] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  // Reminders alert state
+  const [activeReminder, setActiveReminder] = useState(null);
 
   // Accounts management
   const [accounts, setAccounts] = useState([]);
@@ -51,6 +59,79 @@ export default function Dashboard() {
   });
   const [pendingMeetings, setPendingMeetings] = useState([]);
   const [meetingsLoading, setMeetingsLoading] = useState(false);
+
+  // 30-Second Reminders Polling Loop
+  useEffect(() => {
+    const pollReminders = async () => {
+      const userEmail = activeEmailFilter || localStorage.getItem("user_email") || "executive@gmail.com";
+      try {
+        const response = await API.get("/meetings/reminders/pending", {
+          params: { user_id: userEmail }
+        });
+        const pendingReminders = response.data || [];
+        if (pendingReminders.length > 0) {
+          setActiveReminder(pendingReminders[0]);
+        } else {
+          setActiveReminder(null);
+        }
+      } catch (err) {
+        console.error("Failed to poll pending reminders:", err);
+      }
+    };
+
+    pollReminders();
+    const interval = setInterval(pollReminders, 30000);
+    return () => clearInterval(interval);
+  }, [activeEmailFilter]);
+
+  const handleAcknowledgeReminder = async (meetingId) => {
+    try {
+      await API.post(`/meetings/reminders/${meetingId}/acknowledge`);
+      setActiveReminder(null);
+      fetchMeetings();
+    } catch (err) {
+      console.error("Failed to acknowledge reminder:", err);
+    }
+  };
+
+  const handleSearch = async (query) => {
+    if (!query || !query.trim()) {
+      handleClearSearch();
+      return;
+    }
+    setIsSearching(true);
+    setIsSearchActive(true);
+    setError(null);
+    try {
+      const response = await API.get("/emails/search", {
+        params: { q: query.trim() }
+      });
+      const results = response.data?.emails || [];
+      setSearchResults(results);
+      if (results.length > 0) {
+        setSelectedEmail(results[0]);
+      } else {
+        setSelectedEmail(null);
+      }
+    } catch (err) {
+      console.error("Search failed:", err);
+      setError("Search failed to execute. Please check query syntax.");
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleClearSearch = () => {
+    setIsSearchActive(false);
+    setSearchResults([]);
+    const defaultList = getFilteredEmails(emails);
+    if (defaultList.length > 0) {
+      setSelectedEmail(defaultList[0]);
+    } else {
+      setSelectedEmail(null);
+    }
+  };
 
   // Load connected accounts from local storage
   const loadAccounts = () => {
@@ -356,6 +437,9 @@ export default function Dashboard() {
 
   // Generic function to filter emails according to state
   function getFilteredEmails(emailsList = emails) {
+    if (isSearchActive) {
+      return searchResults;
+    }
     return emailsList.filter((email) => {
       // 1. Account Filter
       if (activeEmailFilter && email.account_email !== activeEmailFilter) {
@@ -801,6 +885,8 @@ export default function Dashboard() {
               setActiveSection("inbox");
             }
           }}
+          onSearch={handleSearch}
+          onClearSearch={handleClearSearch}
         />
 
         {/* Dynamic content split panel */}
@@ -855,11 +941,11 @@ export default function Dashboard() {
                 </div>
 
                 {/* List View Container */}
-                {isLoading ? (
+                {isLoading || isSearching ? (
                   <div className="flex-1 flex flex-col items-center justify-center space-y-3">
                     <div className="h-7 w-7 rounded-full border-2 border-indigo-500/20 border-t-indigo-500 animate-spin"></div>
                     <span className="text-xs text-slate-500 font-medium">
-                      Downloading mailboxes...
+                      {isSearching ? "Searching mailbox..." : "Downloading mailboxes..."}
                     </span>
                   </div>
                 ) : error ? (
@@ -1394,6 +1480,71 @@ export default function Dashboard() {
                 className="px-4.5 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-lg shadow-indigo-500/10"
               >
                 {isSavingRules ? "Saving..." : "Apply Rules"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 30-Minute Meeting Alert Modal */}
+      {activeReminder && (
+        <div className="fixed inset-0 bg-slate-950/60 dark:bg-black/70 flex items-center justify-center p-6 z-50 backdrop-blur-md">
+          <div className="bg-white dark:bg-[#0d1322] rounded-2xl border border-slate-200 dark:border-slate-800 w-full max-w-md shadow-2xl p-6 overflow-hidden flex flex-col space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center space-x-3 text-indigo-600 dark:text-indigo-400 text-left">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
+              </span>
+              <h3 className="text-xs font-extrabold uppercase tracking-wider">
+                Upcoming Meeting Alert
+              </h3>
+            </div>
+            
+            <div className="space-y-2 text-left">
+              <h2 className="text-sm font-extrabold text-slate-800 dark:text-white leading-snug">
+                {activeReminder.title}
+              </h2>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">
+                Starts in 30 minutes!
+              </p>
+            </div>
+            
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2 text-left">
+              <div className="flex items-center space-x-2 text-xs font-semibold text-slate-650 dark:text-slate-300">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-indigo-500">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+                <span>
+                  {new Date(activeReminder.start_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </div>
+              {activeReminder.meeting_platform && (
+                <div className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
+                  Platform: <span className="text-indigo-600 dark:text-indigo-400">{activeReminder.meeting_platform}</span>
+                </div>
+              )}
+              {activeReminder.description && (
+                <p className="text-[10px] text-slate-450 dark:text-slate-500 truncate italic">
+                  "{activeReminder.description}"
+                </p>
+              )}
+            </div>
+            
+            <div className="flex space-x-3 pt-2">
+              {activeReminder.meeting_url && (
+                <a
+                  href={activeReminder.meeting_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-505 text-xs font-bold text-white text-center transition-all cursor-pointer shadow-lg shadow-indigo-500/10"
+                >
+                  Join Meeting
+                </a>
+              )}
+              <button
+                onClick={() => handleAcknowledgeReminder(activeReminder.meeting_id)}
+                className="flex-1 py-2 rounded-lg border border-slate-250 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-650 dark:text-slate-350 transition-colors cursor-pointer"
+              >
+                Acknowledge
               </button>
             </div>
           </div>

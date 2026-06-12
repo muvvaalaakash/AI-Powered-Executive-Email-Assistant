@@ -23,15 +23,22 @@ if settings.APPLICATIONINSIGHTS_CONNECTION_STRING:
     except Exception as e:
         logger.error(f"Failed to configure Azure Monitor OpenTelemetry: {str(e)}")
 
+from database import db as pg_db, initialize_db as pg_initialize_db
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize Redis pool
+    # Startup: Initialize Redis and PostgreSQL pools
     logger.info("Starting api-service Gateway...")
     await redis_manager.initialize()
+    try:
+        await pg_initialize_db()
+    except Exception as ex:
+        logger.error(f"Failed to initialize PostgreSQL database on startup: {str(ex)}")
     yield
-    # Shutdown: Close Redis pool
+    # Shutdown: Close pools
     logger.info("Shutting down api-service Gateway...")
     await redis_manager.close()
+    await pg_db.close()
 
 app = FastAPI(
     title="AeroInbox API Gateway",

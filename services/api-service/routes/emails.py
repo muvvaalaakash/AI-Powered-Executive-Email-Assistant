@@ -40,6 +40,58 @@ async def trigger_meeting_detection(emails: List[dict]):
         except Exception as e:
             logger.error(f"Error triggering background meeting detection: {str(e)}")
 
+async def save_emails_to_cache(emails: List[dict]):
+    """
+    Saves the processed emails to the prioritized_emails table.
+    """
+    from database import db as pg_db
+    query = """
+        INSERT INTO prioritized_emails (
+            email_id, user_id, rule_score, matched_rules, ai_summary, ai_priority, ai_reply,
+            is_spam_false_positive, spam_analysis_reason, is_meeting_request, has_deadline, deadline_date,
+            final_priority, final_score
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        ON CONFLICT (email_id) DO UPDATE SET
+            rule_score = EXCLUDED.rule_score,
+            matched_rules = EXCLUDED.matched_rules,
+            ai_summary = EXCLUDED.ai_summary,
+            ai_priority = EXCLUDED.ai_priority,
+            ai_reply = EXCLUDED.ai_reply,
+            is_spam_false_positive = EXCLUDED.is_spam_false_positive,
+            spam_analysis_reason = EXCLUDED.spam_analysis_reason,
+            is_meeting_request = EXCLUDED.is_meeting_request,
+            has_deadline = EXCLUDED.has_deadline,
+            deadline_date = EXCLUDED.deadline_date,
+            final_priority = EXCLUDED.final_priority,
+            final_score = EXCLUDED.final_score;
+    """
+    for email in emails:
+        rule_analysis = email.get("rule_analysis") or {}
+        ai_analysis = email.get("ai_analysis") or {}
+        
+        matched_rules_json = json.dumps(rule_analysis.get("matched_rules", []))
+        
+        try:
+            await pg_db.execute(
+                query,
+                email.get("id"),
+                email.get("account_email", "unknown"),
+                rule_analysis.get("rule_score", 0),
+                matched_rules_json,
+                ai_analysis.get("summary") if ai_analysis else None,
+                ai_analysis.get("priority") if ai_analysis else None,
+                ai_analysis.get("reply") if ai_analysis else None,
+                ai_analysis.get("is_spam_false_positive", False) if ai_analysis else False,
+                ai_analysis.get("spam_analysis_reason") if ai_analysis else None,
+                ai_analysis.get("is_meeting_request", False) if ai_analysis else False,
+                ai_analysis.get("has_deadline", False) if ai_analysis else False,
+                ai_analysis.get("deadline_date") if ai_analysis else None,
+                email.get("final_priority", "Low"),
+                email.get("final_score", 0)
+            )
+        except Exception as e:
+            logger.error(f"Failed to cache email {email.get('id')} to database: {str(e)}")
+
 async def refresh_google_token(refresh_token: str) -> Optional[str]:
     """
     Exchanges a refresh token for a new access token via Google APIs.
@@ -179,17 +231,70 @@ async def fetch_and_prioritize_emails(
     unread_emails = [e for e in all_emails if e.get("read_status") == "unread"]
     read_emails = [e for e in all_emails if e.get("read_status") == "read"]
     
-    # 3. Analyze unread emails (rules engine + AI)
+    # 3. Check database cache for unread emails
+    cached_unread_emails = []
+    uncached_unread_emails = []
+    
     if unread_emails:
+        from database import db as pg_db
+        email_ids = [e.get("id") for e in unread_emails]
+        try:
+            rows = await pg_db.fetch(
+                "SELECT * FROM prioritized_emails WHERE email_id = ANY($1::varchar[])",
+                email_ids
+            )
+            cache_map = {row["email_id"]: row for row in rows}
+            
+            for email in unread_emails:
+                email_id = email.get("id")
+                if email_id in cache_map:
+                    db_row = cache_map[email_id]
+                    matched_rules = db_row["matched_rules"]
+                    if isinstance(matched_rules, str):
+                        try:
+                            matched_rules = json.loads(matched_rules)
+                        except Exception:
+                            matched_rules = []
+                            
+                    email["rule_analysis"] = {
+                        "rule_score": db_row["rule_score"],
+                        "matched_rules": matched_rules
+                    }
+                    
+                    if db_row["ai_priority"] is not None:
+                        email["ai_analysis"] = {
+                            "summary": db_row["ai_summary"],
+                            "priority": db_row["ai_priority"],
+                            "reply": db_row["ai_reply"],
+                            "is_spam_false_positive": db_row["is_spam_false_positive"],
+                            "spam_analysis_reason": db_row["spam_analysis_reason"],
+                            "is_meeting_request": db_row["is_meeting_request"],
+                            "has_deadline": db_row["has_deadline"],
+                            "deadline_date": db_row["deadline_date"]
+                        }
+                    else:
+                        email["ai_analysis"] = None
+                        
+                    email["final_priority"] = db_row["final_priority"]
+                    email["final_score"] = db_row["final_score"]
+                    cached_unread_emails.append(email)
+                else:
+                    uncached_unread_emails.append(email)
+        except Exception as e:
+            logger.error(f"Error checking prioritized_emails database cache: {str(e)}")
+            uncached_unread_emails = unread_emails
+    
+    # 4. Analyze uncached unread emails (rules engine + AI)
+    if uncached_unread_emails:
         async with httpx.AsyncClient() as client:
             rule_task = client.post(
                 f"{settings.RULE_ENGINE_SERVICE_URL}/evaluate/bulk",
-                json=unread_emails,
+                json=uncached_unread_emails,
                 timeout=15.0
             )
             ai_task = client.post(
                 f"{settings.AI_SERVICE_URL}/process/bulk",
-                json={"emails": unread_emails},
+                json={"emails": uncached_unread_emails},
                 timeout=45.0
             )
             
@@ -210,8 +315,8 @@ async def fetch_and_prioritize_emails(
                 else:
                     logger.error(f"AI Service call failed: {ai_res}")
                     
-                # 4. Compute hybrid priority for each unread email
-                for email in unread_emails:
+                # Compute hybrid priority for each uncached email
+                for email in uncached_unread_emails:
                     email_id = email.get("id")
                     
                     r_info = rule_data.get(email_id, {"rule_score": 0, "matched_rules": []})
@@ -273,9 +378,13 @@ async def fetch_and_prioritize_emails(
                         email["final_priority"] = "Low"
                         
                     email["final_score"] = final_score
+                
+                # Save new evaluations in background
+                background_tasks.add_task(save_emails_to_cache, uncached_unread_emails)
+                
             except Exception as e:
                 logger.error(f"Error during orchestrator batch evaluation: {str(e)}")
-                for email in unread_emails:
+                for email in uncached_unread_emails:
                     email["rule_analysis"] = None
                     email["ai_analysis"] = None
                     email["final_priority"] = "Low"
@@ -294,6 +403,144 @@ async def fetch_and_prioritize_emails(
     
     sorted_emails = unread_emails + read_emails
     return GetEmailsResponse(emails=sorted_emails, refreshed_tokens=refreshed_tokens)
+
+@router.get("/search", response_model=GetEmailsResponse)
+async def search_emails(
+    q: str = Query(..., description="Gmail search query string"),
+    accounts: List[AccountPayload] = Depends(get_session_accounts),
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
+    """
+    Search emails across accounts using Gmail's query parameters.
+    Enriches results with prioritized cache metadata if available.
+    """
+    session_id = credentials.credentials
+    refreshed_tokens = {}
+    all_emails = []
+    
+    # 1. Search emails for each account in parallel
+    async def process_account_search(acc: AccountPayload):
+        nonlocal refreshed_tokens
+        access_token = acc.access_token
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                search_body = {
+                    "accounts": [{"email": acc.email, "access_token": access_token}],
+                    "q": q,
+                    "max_results": 15
+                }
+                response = await client.post(
+                    f"{settings.GMAIL_SERVICE_URL}/search",
+                    json=search_body,
+                    timeout=30.0
+                )
+                
+                # Check for unauthorized (token expired)
+                if response.status_code == 401 and acc.refresh_token:
+                    logger.info(f"Access token expired for {acc.email} during search. Refreshing...")
+                    new_token = await refresh_google_token(acc.refresh_token)
+                    if new_token:
+                        refreshed_tokens[acc.email] = new_token
+                        access_token = new_token
+                        
+                        # Update in Redis session
+                        if session_id:
+                            try:
+                                redis_client = await redis_manager.get_client()
+                                session_key = f"session:{session_id}"
+                                session_data = await redis_client.get(session_key)
+                                if session_data:
+                                    sess_accs = json.loads(session_data)
+                                    for sa in sess_accs:
+                                        if sa.get("email") == acc.email:
+                                            sa["access_token"] = new_token
+                                    await redis_client.setex(session_key, 3600, json.dumps(sess_accs))
+                            except Exception as ex:
+                                logger.error(f"Failed to update session token in Redis: {str(ex)}")
+
+                        # Retry the request with the new access token
+                        search_body["accounts"][0]["access_token"] = access_token
+                        response = await client.post(
+                            f"{settings.GMAIL_SERVICE_URL}/search",
+                            json=search_body,
+                            timeout=30.0
+                        )
+                
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.error(f"Gmail Service returned {response.status_code} during search for {acc.email}: {response.text}")
+                    return []
+            except Exception as e:
+                logger.error(f"Orchestrator error searching emails for {acc.email}: {str(e)}")
+                return []
+                  
+    tasks = [process_account_search(acc) for acc in accounts]
+    accounts_emails = await asyncio.gather(*tasks)
+    
+    # Flatten emails
+    for emails_list in accounts_emails:
+        all_emails.extend(emails_list)
+        
+    if not all_emails:
+        return GetEmailsResponse(emails=[], refreshed_tokens=refreshed_tokens)
+        
+    # 2. Enrich search results with cached prioritization metadata from PostgreSQL
+    email_ids = [e.get("id") for e in all_emails]
+    from database import db as pg_db
+    try:
+        rows = await pg_db.fetch(
+            "SELECT * FROM prioritized_emails WHERE email_id = ANY($1::varchar[])",
+            email_ids
+        )
+        cache_map = {row["email_id"]: row for row in rows}
+    except Exception as e:
+        logger.error(f"Database error fetching search enrichments: {str(e)}")
+        cache_map = {}
+        
+    for email in all_emails:
+        email_id = email.get("id")
+        if email_id in cache_map:
+            db_row = cache_map[email_id]
+            matched_rules = db_row["matched_rules"]
+            if isinstance(matched_rules, str):
+                try:
+                    matched_rules = json.loads(matched_rules)
+                except Exception:
+                    matched_rules = []
+                    
+            email["rule_analysis"] = {
+                "rule_score": db_row["rule_score"],
+                "matched_rules": matched_rules
+            }
+            
+            if db_row["ai_priority"] is not None:
+                email["ai_analysis"] = {
+                    "summary": db_row["ai_summary"],
+                    "priority": db_row["ai_priority"],
+                    "reply": db_row["ai_reply"],
+                    "is_spam_false_positive": db_row["is_spam_false_positive"],
+                    "spam_analysis_reason": db_row["spam_analysis_reason"],
+                    "is_meeting_request": db_row["is_meeting_request"],
+                    "has_deadline": db_row["has_deadline"],
+                    "deadline_date": db_row["deadline_date"]
+                }
+            else:
+                email["ai_analysis"] = None
+                
+            email["final_priority"] = db_row["final_priority"]
+            email["final_score"] = db_row["final_score"]
+        else:
+            email["rule_analysis"] = None
+            email["ai_analysis"] = None
+            email["final_priority"] = None
+            email["final_score"] = 0
+            
+    priority_order = {"Critical": 4, "High": 3, "Medium": 2, "Low": 1, None: 0}
+    all_emails.sort(key=lambda x: (priority_order.get(x.get("final_priority")), x.get("timestamp", 0)), reverse=True)
+    
+    return GetEmailsResponse(emails=all_emails, refreshed_tokens=refreshed_tokens)
 
 async def perform_gmail_action(
     id: str,

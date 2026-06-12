@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from repository import PostgreSQLMeetingRepository, Meeting, Participant
 from config import settings
+from service_bus import schedule_meeting_reminder
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -371,6 +372,8 @@ async def save_or_update_meeting(
             if p.participant_email not in existing_emails:
                 existing.participants.append(p)
         await repo.update_meeting(existing)
+        if existing.status in ("Confirmed", "Updated"):
+            await schedule_reminder_for_meeting(existing)
     else:
         # Create new meeting card
         new_meet = Meeting(
@@ -391,6 +394,46 @@ async def save_or_update_meeting(
             participants=participants
         )
         await repo.create_meeting(new_meet)
+        if new_meet.status in ("Confirmed", "Updated"):
+            await schedule_reminder_for_meeting(new_meet)
+
+async def schedule_reminder_for_meeting(meet: Meeting):
+    """
+    Parses start time, calculates reminder time (start - 30 minutes),
+    saves to repository, and schedules via Service Bus client helper.
+    """
+    try:
+        try:
+            start_dt = datetime.fromisoformat(meet.start_datetime)
+        except ValueError:
+            dt_str = meet.start_datetime.replace("Z", "")
+            start_dt = datetime.fromisoformat(dt_str)
+            
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=datetime.timezone.utc)
+            
+        reminder_dt = start_dt - timedelta(minutes=30)
+        
+        # Save reminder state to DB
+        await repo.create_or_update_reminder(
+            user_id=meet.user_id,
+            meeting_id=meet.id,
+            title=meet.meeting_title,
+            start_time=start_dt,
+            reminder_time=reminder_dt
+        )
+        
+        # Send to Service Bus / local simulation
+        await schedule_meeting_reminder(
+            meeting_id=meet.id,
+            user_id=meet.user_id,
+            title=meet.meeting_title,
+            start_time=start_dt,
+            reminder_time=reminder_dt
+        )
+        logger.info(f"Successfully scheduled reminder for meeting {meet.id} at {reminder_dt}")
+    except Exception as e:
+        logger.error(f"Failed to schedule reminder for meeting {meet.id}: {str(e)}", exc_info=True)
 
 # API Routes
 @app.post("/meetings/detect")
@@ -427,6 +470,7 @@ async def confirm_meeting(id: int):
     meet.status = "Confirmed"
     meet.updated_timestamp = datetime.utcnow().isoformat()
     await repo.update_meeting(meet)
+    await schedule_reminder_for_meeting(meet)
     return meet
 
 @app.post("/meetings/{id}/dismiss")
@@ -456,7 +500,37 @@ async def accept_meeting_update(id: int):
     meet.status = "Confirmed"
     meet.updated_timestamp = datetime.utcnow().isoformat()
     await repo.update_meeting(meet)
+    await schedule_reminder_for_meeting(meet)
     return meet
+
+@app.post("/meetings/reminders/{id}/trigger")
+async def trigger_meeting_reminder_route(id: int):
+    """
+    Endpoint triggered by Azure Function (or local simulation) when reminder time is reached.
+    Marks sent = True in DB.
+    """
+    success = await repo.trigger_reminder(id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Meeting reminder not found")
+    return {"status": "success", "message": f"Reminder for meeting {id} triggered"}
+
+@app.get("/meetings/reminders/pending")
+async def get_pending_reminders_route(user_id: str):
+    """
+    Fetches all pending unacknowledged reminders for the user.
+    """
+    reminders = await repo.get_pending_reminders(user_id)
+    return reminders
+
+@app.post("/meetings/reminders/{id}/acknowledge")
+async def acknowledge_meeting_reminder_route(id: int):
+    """
+    Marks a meeting reminder as acknowledged by the user.
+    """
+    success = await repo.acknowledge_reminder(id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Meeting reminder not found")
+    return {"status": "success", "message": f"Reminder for meeting {id} acknowledged"}
 
 @app.post("/meetings/{id}/remove")
 async def remove_meeting(id: int):

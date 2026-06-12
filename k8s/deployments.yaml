@@ -1,0 +1,246 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-service-sa
+  namespace: default
+  annotations:
+    azure.workload.identity/client-id: "placeholder-api-service-client-id"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: meeting-service-sa
+  namespace: default
+  annotations:
+    azure.workload.identity/client-id: "placeholder-meeting-service-client-id"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default-sa
+  namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-service
+  namespace: default
+  labels:
+    app: api-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-service
+  template:
+    metadata:
+      labels:
+        app: api-service
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: api-service-sa
+      containers:
+      - name: api-service
+        image: aeroinboxacr.azurecr.io/api-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        env:
+        - name: FRONTEND_URL
+          value: "https://aeroinbox.com"
+        - name: GMAIL_SERVICE_URL
+          value: "http://gmail-service:8000"
+        - name: AI_SERVICE_URL
+          value: "http://ai-service:8000"
+        - name: RULE_ENGINE_SERVICE_URL
+          value: "http://rule-engine-service:8000"
+        - name: MEETING_SERVICE_URL
+          value: "http://meeting-service:8000"
+        - name: DB_HOST
+          value: "aeroinbox-pg.postgres.database.azure.com"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_USER
+          value: "api_service_identity"
+        - name: DB_NAME
+          value: "aeroinbox"
+        - name: DB_SSL
+          value: "true"
+        - name: DB_AUTH_METHOD
+          value: "entra"
+        - name: REDIS_HOST
+          value: "aeroinbox-redis.redis.cache.windows.net"
+        - name: REDIS_PORT
+          value: "6380"
+        - name: REDIS_SSL
+          value: "true"
+        - name: REDIS_PASSWORD
+          value: "" # Passwordless authentication via Entra ID / Access tokens
+        - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+          value: "InstrumentationKey=placeholder-key"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gmail-service
+  namespace: default
+  labels:
+    app: gmail-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gmail-service
+  template:
+    metadata:
+      labels:
+        app: gmail-service
+    spec:
+      serviceAccountName: default-sa
+      containers:
+      - name: gmail-service
+        image: aeroinboxacr.azurecr.io/gmail-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        env:
+        - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+          value: "InstrumentationKey=placeholder-key"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-service
+  namespace: default
+  labels:
+    app: ai-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-service
+  template:
+    metadata:
+      labels:
+        app: ai-service
+    spec:
+      serviceAccountName: default-sa
+      containers:
+      - name: ai-service
+        image: aeroinboxacr.azurecr.io/ai-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1024Mi
+        env:
+        - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+          value: "InstrumentationKey=placeholder-key"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rule-engine-service
+  namespace: default
+  labels:
+    app: rule-engine-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rule-engine-service
+  template:
+    metadata:
+      labels:
+        app: rule-engine-service
+    spec:
+      serviceAccountName: default-sa
+      containers:
+      - name: rule-engine-service
+        image: aeroinboxacr.azurecr.io/rule-engine:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        env:
+        - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+          value: "InstrumentationKey=placeholder-key"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meeting-service
+  namespace: default
+  labels:
+    app: meeting-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: meeting-service
+  template:
+    metadata:
+      labels:
+        app: meeting-service
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: meeting-service-sa
+      containers:
+      - name: meeting-service
+        image: aeroinboxacr.azurecr.io/meeting-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        env:
+        - name: AI_SERVICE_URL
+          value: "http://ai-service:8000"
+        - name: DB_HOST
+          value: "aeroinbox-pg.postgres.database.azure.com"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_USER
+          value: "meeting_service_identity"
+        - name: DB_NAME
+          value: "aeroinbox"
+        - name: DB_SSL
+          value: "true"
+        - name: DB_AUTH_METHOD
+          value: "entra"
+        - name: SERVICE_BUS_CONNECTION_STRING
+          value: "Endpoint=sb://aeroinbox-sb.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=placeholder-key"
+        - name: SERVICE_BUS_QUEUE_NAME
+          value: "meeting-reminders"
+        - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+          value: "InstrumentationKey=placeholder-key"

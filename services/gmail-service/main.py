@@ -5,7 +5,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import List, Optional
 import asyncio
-from services.gmail_service import fetch_emails, modify_message_labels
+from services.gmail_service import fetch_emails, modify_message_labels, search_emails
 from config import settings
 
 # Setup logging
@@ -79,6 +79,40 @@ async def fetch_multi_account_emails(payload: FetchEmailsRequest):
             return []
 
     tasks = [fetch_one(acc) for acc in payload.accounts]
+    results = await asyncio.gather(*tasks)
+    
+    # Flatten the list of lists
+    flat_list = [email for sublist in results for email in sublist]
+    
+    # Sort by timestamp descending (newest first)
+    flat_list.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+    return flat_list
+
+class SearchEmailsRequest(BaseModel):
+    accounts: List[AccountCredential]
+    q: str
+    max_results: int = 15
+
+@app.post("/search")
+async def search_multi_account_emails(payload: SearchEmailsRequest):
+    """
+    Searches emails from multiple Gmail accounts in parallel using a search query.
+    """
+    async def search_one(acc: AccountCredential):
+        try:
+            emails = await search_emails(
+                access_token=acc.access_token,
+                q=payload.q,
+                max_results=payload.max_results
+            )
+            for email in emails:
+                email["account_email"] = acc.email
+            return emails
+        except Exception as e:
+            logger.error(f"Error searching emails for {acc.email}: {str(e)}")
+            return []
+
+    tasks = [search_one(acc) for acc in payload.accounts]
     results = await asyncio.gather(*tasks)
     
     # Flatten the list of lists

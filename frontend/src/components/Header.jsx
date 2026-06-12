@@ -9,10 +9,13 @@ export default function Header({
   onSwitchAccount,
   notifications = [],
   onSelectEmail,
+  onSearch = () => {},
+  onClearSearch = () => {},
 }) {
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "dark");
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [notifMenuOpen, setNotifMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Toggle light/dark theme
   const toggleTheme = () => {
@@ -50,6 +53,50 @@ export default function Header({
           </span>
           <span>AI Co-Pilot Active</span>
         </span>
+      </div>
+
+      {/* Interactive Search Bar */}
+      <div className="flex-1 max-w-md mx-6">
+        <div className="relative w-full">
+          <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+            <svg
+              className="w-4 h-4 text-slate-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+          </span>
+          <input
+            type="text"
+            placeholder="Search mailbox (press Enter)..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                onSearch(searchQuery);
+              }
+            }}
+            className="w-full pl-10 pr-8 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0c1220]/50 text-slate-750 dark:text-slate-300 outline-none focus:border-indigo-500 transition-all"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                onClearSearch();
+              }}
+              className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center space-x-4">

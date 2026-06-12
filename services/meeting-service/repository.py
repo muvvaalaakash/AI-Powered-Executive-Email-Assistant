@@ -83,6 +83,22 @@ class MeetingRepository(ABC):
     async def list_upcoming_meetings(self, user_id: str) -> List[Meeting]:
         pass
 
+    @abstractmethod
+    async def create_or_update_reminder(self, user_id: str, meeting_id: int, title: str, start_time: datetime.datetime, reminder_time: datetime.datetime) -> None:
+        pass
+
+    @abstractmethod
+    async def trigger_reminder(self, meeting_id: int) -> bool:
+        pass
+
+    @abstractmethod
+    async def get_pending_reminders(self, user_id: str) -> List[dict]:
+        pass
+
+    @abstractmethod
+    async def acknowledge_reminder(self, meeting_id: int) -> bool:
+        pass
+
 
 class PostgreSQLMeetingRepository(MeetingRepository):
     def __init__(self):
@@ -210,6 +226,25 @@ class PostgreSQLMeetingRepository(MeetingRepository):
         await self.execute("CREATE INDEX IF NOT EXISTS idx_meetings_user ON meetings(user_id);")
         await self.execute("CREATE INDEX IF NOT EXISTS idx_meetings_url ON meetings(meeting_url);")
         await self.execute("CREATE INDEX IF NOT EXISTS idx_meetings_title_org ON meetings(meeting_title, organizer);")
+        
+        query_reminders = """
+            CREATE TABLE IF NOT EXISTS meeting_reminders (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                meeting_id INT NOT NULL UNIQUE REFERENCES meetings(id) ON DELETE CASCADE,
+                title VARCHAR(255) NOT NULL,
+                start_time TIMESTAMP WITH TIME ZONE NOT NULL,
+                reminder_time TIMESTAMP WITH TIME ZONE NOT NULL,
+                sent BOOLEAN DEFAULT FALSE,
+                acknowledged BOOLEAN DEFAULT FALSE,
+                acknowledged_at TIMESTAMP WITH TIME ZONE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        """
+        await self.execute(query_reminders)
+        await self.execute("CREATE INDEX IF NOT EXISTS idx_reminders_user ON meeting_reminders(user_id);")
+        await self.execute("CREATE INDEX IF NOT EXISTS idx_reminders_meeting ON meeting_reminders(meeting_id);")
+        await self.execute("CREATE INDEX IF NOT EXISTS idx_reminders_pending ON meeting_reminders(user_id) WHERE sent = TRUE AND acknowledged = FALSE;")
         logger.info("Database tables and indexes initialized.")
 
     async def create_meeting(self, meeting: Meeting) -> Meeting:
@@ -377,3 +412,70 @@ class PostgreSQLMeetingRepository(MeetingRepository):
             user_id, now_str
         )
         return [self._row_to_meeting(row) for row in rows]
+
+    async def create_or_update_reminder(self, user_id: str, meeting_id: int, title: str, start_time: datetime.datetime, reminder_time: datetime.datetime):
+        """
+        Creates a new reminder or updates an existing one for a meeting.
+        """
+        if start_time.tzinfo is None:
+            start_time = start_time.replace(tzinfo=datetime.timezone.utc)
+        if reminder_time.tzinfo is None:
+            reminder_time = reminder_time.replace(tzinfo=datetime.timezone.utc)
+            
+        query = """
+            INSERT INTO meeting_reminders (
+                user_id, meeting_id, title, start_time, reminder_time, sent, acknowledged
+            ) VALUES ($1, $2, $3, $4, $5, FALSE, FALSE)
+            ON CONFLICT (meeting_id) DO UPDATE SET
+                title = EXCLUDED.title,
+                start_time = EXCLUDED.start_time,
+                reminder_time = EXCLUDED.reminder_time,
+                sent = FALSE,
+                acknowledged = FALSE,
+                acknowledged_at = NULL;
+        """
+        await self.execute(query, user_id, meeting_id, title, start_time, reminder_time)
+
+    async def trigger_reminder(self, meeting_id: int) -> bool:
+        """
+        Marks a reminder as sent (triggered).
+        """
+        query = "UPDATE meeting_reminders SET sent = TRUE WHERE meeting_id = $1"
+        res = await self.execute(query, meeting_id)
+        return res and "UPDATE" in res
+
+    async def get_pending_reminders(self, user_id: str) -> List[dict]:
+        """
+        Gets all unacknowledged reminders that have been sent (triggered).
+        """
+        query = """
+            SELECT r.*, m.meeting_url, m.meeting_platform, m.description
+            FROM meeting_reminders r
+            JOIN meetings m ON r.meeting_id = m.id
+            WHERE r.user_id = $1 AND r.sent = TRUE AND r.acknowledged = FALSE
+            ORDER BY r.start_time ASC
+        """
+        rows = await self.fetch(query, user_id)
+        reminders = []
+        for row in rows:
+            r_dict = dict(row)
+            # Serialize datetimes to string
+            if isinstance(r_dict.get("start_time"), datetime.datetime):
+                r_dict["start_time"] = r_dict["start_time"].isoformat()
+            if isinstance(r_dict.get("reminder_time"), datetime.datetime):
+                r_dict["reminder_time"] = r_dict["reminder_time"].isoformat()
+            if isinstance(r_dict.get("acknowledged_at"), datetime.datetime):
+                r_dict["acknowledged_at"] = r_dict["acknowledged_at"].isoformat()
+            if isinstance(r_dict.get("created_at"), datetime.datetime):
+                r_dict["created_at"] = r_dict["created_at"].isoformat()
+            reminders.append(r_dict)
+        return reminders
+
+    async def acknowledge_reminder(self, meeting_id: int) -> bool:
+        """
+        Marks a reminder as acknowledged.
+        """
+        now = datetime.datetime.now(datetime.timezone.utc)
+        query = "UPDATE meeting_reminders SET acknowledged = TRUE, acknowledged_at = $1 WHERE meeting_id = $2"
+        res = await self.execute(query, now, meeting_id)
+        return res and "UPDATE" in res

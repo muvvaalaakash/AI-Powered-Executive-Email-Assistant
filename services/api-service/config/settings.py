@@ -17,6 +17,15 @@ class Settings(BaseSettings):
     RULE_ENGINE_SERVICE_URL: str = Field(default="http://rule-engine-service:8000")
     MEETING_SERVICE_URL: str = Field(default="http://meeting-service:8000")
     
+    # Database configuration
+    DB_HOST: str = Field(default="localhost")
+    DB_PORT: int = Field(default=5432)
+    DB_USER: str = Field(default="postgres")
+    DB_NAME: str = Field(default="postgres")
+    DB_PASSWORD: str = Field(default_factory=lambda: get_secret("postgres-password"))
+    DB_SSL: str = Field(default="true")
+    DB_AUTH_METHOD: str = Field(default="password") # "entra" or "password"
+    
     # Redis configuration
     REDIS_HOST: str = Field(default="localhost")
     REDIS_PORT: int = Field(default=6379)

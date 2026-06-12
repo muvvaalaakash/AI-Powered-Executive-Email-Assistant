@@ -180,3 +180,91 @@ def modify_message_labels(access_token: str, msg_id: str, add_labels: list[str],
             status_code=500,
             detail=f"Failed to modify message labels: {str(e)}"
         )
+
+async def search_emails(access_token: str, q: str, max_results: int = 15):
+    """
+    Searches emails using the Gmail API query parameter `q`.
+    """
+    service = get_gmail_service(access_token)
+    try:
+        # Call Gmail API list messages with search query
+        result = service.users().messages().list(
+            userId='me',
+            q=q,
+            includeSpamTrash=True,
+            maxResults=max_results
+        ).execute()
+        
+        messages = result.get('messages', [])
+        email_list = []
+        
+        for msg in messages:
+            msg_id = msg['id']
+            # Fetch the complete message object
+            detail = service.users().messages().get(
+                userId='me',
+                id=msg_id,
+                format='full'
+            ).execute()
+            
+            label_ids = detail.get('labelIds', [])
+            
+            # Skip if message is in Trash
+            if 'TRASH' in label_ids:
+                continue
+                
+            payload = detail.get('payload', {})
+            headers = payload.get('headers', [])
+            
+            subject = next((h.get('value') for h in headers if h.get('name', '').lower() == 'subject'), 'No Subject')
+            sender = next((h.get('value') for h in headers if h.get('name', '').lower() == 'from'), 'Unknown Sender')
+            date = next((h.get('value') for h in headers if h.get('name', '').lower() == 'date'), 'Unknown Date')
+            
+            body = extract_body(payload)
+            snippet = detail.get('snippet', '')
+            internal_date = int(detail.get('internalDate', 0))
+            
+            read_status = "read" if "UNREAD" not in label_ids else "unread"
+            folder = "SPAM" if "SPAM" in label_ids else "INBOX"
+            
+            email_list.append({
+                "id": msg_id,
+                "sender": sender,
+                "subject": subject,
+                "date": date,
+                "snippet": snippet,
+                "body": body,
+                "read_status": read_status,
+                "folder": folder,
+                "timestamp": internal_date
+            })
+            
+        return email_list
+    except HttpError as error:
+        try:
+            import json
+            error_details = json.loads(error.content.decode('utf-8'))
+            message = error_details.get('error', {}).get('message', error.reason)
+        except Exception:
+            message = error.reason
+
+        if error.resp.status == 401:
+            raise HTTPException(
+                status_code=401,
+                detail="Gmail access token is invalid or expired."
+            )
+        elif error.resp.status == 403:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Gmail API access forbidden: {message}. Please ensure the Gmail API is enabled in your GCP project and that you granted the necessary permissions during login."
+            )
+        raise HTTPException(
+            status_code=error.resp.status,
+            detail=f"Gmail API error: {message}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to search emails: {str(e)}"
+        )
+

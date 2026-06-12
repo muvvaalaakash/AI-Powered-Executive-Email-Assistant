@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     
     AI_SERVICE_URL: str = Field(default="http://ai-service:8000")
     
+    # Service Bus configuration
+    SERVICE_BUS_CONNECTION_STRING: str = Field(default="")
+    SERVICE_BUS_QUEUE_NAME: str = Field(default="meeting-reminders")
+
     # Azure Monitor OpenTelemetry config
     APPLICATIONINSIGHTS_CONNECTION_STRING: str = Field(default="")
 
