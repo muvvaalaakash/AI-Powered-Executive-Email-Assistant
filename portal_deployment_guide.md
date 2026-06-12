@@ -309,3 +309,27 @@ To check if your application is successfully up and running in the cloud:
    kubectl logs deployment/api-service -f
    ```
 3. Verify that calling the health check URL (`https://<your-app-gateway-ip>/health`) returns a `healthy` status.
+
+---
+
+## Step 17: External Integrations & Google OAuth Console Setup
+Before you can log in, you must authorize your new cloud domains in the Google Cloud Console:
+
+1. **Get your endpoints**:
+   * **Frontend URL**: Retrieve the default domain of your Azure Static Web App (e.g. `https://blue-tree-05ccc3400.7.azurestaticapps.net`).
+   * **Backend URL**: Retrieve the public IP or custom domain pointing to your Azure Application Gateway Ingress (e.g. `https://api.aeroinbox.com`).
+2. **Configure Google Cloud Console**:
+   * Go to [Google Cloud Console](https://console.cloud.google.com).
+   * Navigate to **APIs & Services -> Credentials**.
+   * Click the edit icon for your **OAuth 2.0 Client ID** used by the application.
+   * **Authorized JavaScript origins**:
+     * Add your local dev URL: `http://localhost:5173`.
+     * Add your Static Web App domain: `https://<your-static-web-app-domain>`.
+   * **Authorized redirect URIs**:
+     * Add your local callback: `http://localhost/auth/callback`.
+     * Add your production cloud redirect callback: `https://<your-app-gateway-domain>/auth/callback`.
+       *(Note: Google OAuth requires redirect URIs to be secure HTTPS URLs; it will reject standard HTTP public IP addresses. Ensure you configure SSL on your Application Gateway).*
+3. **Configure Frontend Environment Variable**:
+   * In [frontend/.env.production](file:///c:/Users/ASUS/OneDrive/Desktop/Ai_Assistan_Email/frontend/.env.production), update `VITE_API_URL` to point to your new backend Application Gateway domain (e.g. `https://api.aeroinbox.com`).
+   * Commit and push this change to trigger a Static Web App rebuild.
+
