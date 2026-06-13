@@ -78,15 +78,26 @@ spec:
         - name: DB_AUTH_METHOD
           value: "entra"
         - name: REDIS_HOST
-          value: "aeroinbox-redis.redis.cache.windows.net"
+          value: "127.0.0.1"
         - name: REDIS_PORT
-          value: "6380"
+          value: "6379"
         - name: REDIS_SSL
-          value: "true"
+          value: "false"
         - name: REDIS_PASSWORD
-          value: "" # Passwordless authentication via Entra ID / Access tokens
+          value: ""
         - name: APPLICATIONINSIGHTS_CONNECTION_STRING
           value: "InstrumentationKey=placeholder-key"
+      - name: redis-sidecar
+        image: redis:alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
 ---
 apiVersion: apps/v1
 kind: Deployment
