@@ -131,8 +131,10 @@ This is our core compute cluster hosting our containerized microservices:
 
 ---
 
-## Step 9: Create an Azure Function App
-This handles the scheduled reminder alerts:
+## Step 9: Create an Azure Function App (Optional)
+> [!NOTE]
+> This step is **optional**. If your subscription restricts serverless Function App creation, you can skip it. The `meeting-service` container is equipped with an integrated background polling loop that will automatically run inside the pod and handle the 30-minute reminder evaluations directly in the database.
+> If you choose to configure the Function App:
 1. Search for **Function App** and click **+ Create**.
 2. **Basics Tab**:
    * **Resource group**: `rg-aeroinbox-prod`.
@@ -280,7 +282,9 @@ Compile your microservices on your local machine and push them to your Azure Con
 
 ---
 
-## Step 15: Deploy the Serverless Function App
+## Step 15: Deploy the Serverless Function App (Optional)
+> [!NOTE]
+> Skip this step if you chose to skip Step 9. If skipped, reminders will still function perfectly using the internal container-level polling scheduler fallback.
 1. Make sure you have installed **Azure Functions Core Tools** on your system.
 2. Initialize and deploy the function folder:
    ```bash
