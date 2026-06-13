@@ -3,7 +3,7 @@
     "rewrite": "/index.html"
   },
   "globalHeaders": {
-    "content-security-policy": "default-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://lh3.googleusercontent.com; connect-src 'self' http://localhost:8000 http://localhost:3000 https://api-service.proudsea-97b69863.centralindia.azurecontainerapps.io https://aeroinbox-ai-resource.openai.azure.com https://oauth2.googleapis.com https://www.googleapis.com https://*.azurestaticapps.net https://aeroinbox.com https://aeroinbox.qzz.io; frame-src 'self' https://accounts.google.com; object-src 'none';",
+    "content-security-policy": "default-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://lh3.googleusercontent.com; connect-src 'self' http://localhost:8000 http://localhost:3000 https://api-service.proudsea-97b69863.centralindia.azurecontainerapps.io https://aeroinbox-ai-resource.openai.azure.com https://oauth2.googleapis.com https://www.googleapis.com https://*.azurestaticapps.net https://aeroinbox.com https://aeroinbox.qzz.io https://api.aeroinbox.qzz.io; frame-src 'self' https://accounts.google.com; object-src 'none';",
     "x-frame-options": "DENY",
     "x-content-type-options": "nosniff",
     "referrer-policy": "same-origin",

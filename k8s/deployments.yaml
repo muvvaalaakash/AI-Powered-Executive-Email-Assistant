@@ -56,7 +56,9 @@ spec:
         - name: AZURE_KEYVAULT_URL
           value: "https://rg-aeroinbox-prod.vault.azure.net/"
         - name: FRONTEND_URL
-          value: "https://salmon-wave-07f119810.7.azurestaticapps.net"
+          value: "https://aeroinbox.qzz.io"
+        - name: GOOGLE_REDIRECT_URI
+          value: "https://api.aeroinbox.qzz.io/auth/callback"
         - name: GMAIL_SERVICE_URL
           value: "http://gmail-service:8000"
         - name: AI_SERVICE_URL
