@@ -1,6 +1,7 @@
 import os
 import re
 import logging
+import asyncio
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from contextlib import asynccontextmanager
@@ -28,14 +29,42 @@ if settings.APPLICATIONINSIGHTS_CONNECTION_STRING:
 
 repo = PostgreSQLMeetingRepository()
 
+async def reminder_polling_loop():
+    """
+    Background loop that runs inside the container.
+    Every 60 seconds, it checks for reminders in the database that are due
+    (reminder_time <= now) and have not been sent yet, and triggers them.
+    This serves as a robust fallback if the serverless Azure Function App is skipped.
+    """
+    logger.info("Starting background meeting reminder scheduler loop...")
+    import datetime as dt
+    while True:
+        try:
+            await asyncio.sleep(60)
+            now = dt.datetime.now(dt.timezone.utc)
+            pool = await repo.get_pool()
+            rows = await pool.fetch(
+                "SELECT meeting_id FROM meeting_reminders WHERE sent = FALSE AND reminder_time <= $1",
+                now
+            )
+            for row in rows:
+                m_id = row["meeting_id"]
+                logger.info(f"Background scheduler: reminder due for meeting {m_id}. Triggering...")
+                await repo.trigger_reminder(m_id)
+        except Exception as e:
+            logger.error(f"Error in background reminder scheduler loop: {str(e)}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize connection pool and create tables
     logger.info("Initializing PostgreSQL database...")
     await repo.initialize_db()
+    # Start the background reminder polling task
+    polling_task = asyncio.create_task(reminder_polling_loop())
     yield
     # Close pool on shutdown
     logger.info("Closing PostgreSQL database connection pool...")
+    polling_task.cancel()
     await repo.close()
 
 app = FastAPI(

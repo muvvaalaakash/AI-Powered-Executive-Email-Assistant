@@ -4,7 +4,7 @@ metadata:
   name: api-service-sa
   namespace: default
   annotations:
-    azure.workload.identity/client-id: "placeholder-api-service-client-id"
+    azure.workload.identity/client-id: "8dff3c1f-64d3-4b9c-ae1e-f9347b8ab1ce"
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -12,7 +12,7 @@ metadata:
   name: meeting-service-sa
   namespace: default
   annotations:
-    azure.workload.identity/client-id: "placeholder-meeting-service-client-id"
+    azure.workload.identity/client-id: "8dff3c1f-64d3-4b9c-ae1e-f9347b8ab1ce"
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -41,7 +41,7 @@ spec:
       serviceAccountName: api-service-sa
       containers:
       - name: api-service
-        image: aeroinboxacr.azurecr.io/api-service:latest
+        image: acraeroinboxprod.azurecr.io/api-service:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
@@ -53,8 +53,10 @@ spec:
             cpu: 500m
             memory: 512Mi
         env:
+        - name: AZURE_KEYVAULT_URL
+          value: "https://rg-aeroinbox-prod.vault.azure.net/"
         - name: FRONTEND_URL
-          value: "https://aeroinbox.com"
+          value: "https://salmon-wave-07f119810.7.azurestaticapps.net"
         - name: GMAIL_SERVICE_URL
           value: "http://gmail-service:8000"
         - name: AI_SERVICE_URL
@@ -64,11 +66,11 @@ spec:
         - name: MEETING_SERVICE_URL
           value: "http://meeting-service:8000"
         - name: DB_HOST
-          value: "aeroinbox-pg.postgres.database.azure.com"
+          value: "pg-aeroinbox-prod.postgres.database.azure.com"
         - name: DB_PORT
           value: "5432"
         - name: DB_USER
-          value: "api_service_identity"
+          value: "id-aeroinbox-prod"
         - name: DB_NAME
           value: "aeroinbox"
         - name: DB_SSL
@@ -102,11 +104,12 @@ spec:
     metadata:
       labels:
         app: gmail-service
+        azure.workload.identity/use: "true"
     spec:
-      serviceAccountName: default-sa
+      serviceAccountName: api-service-sa
       containers:
       - name: gmail-service
-        image: aeroinboxacr.azurecr.io/gmail-service:latest
+        image: acraeroinboxprod.azurecr.io/gmail-service:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
@@ -118,6 +121,8 @@ spec:
             cpu: 500m
             memory: 512Mi
         env:
+        - name: AZURE_KEYVAULT_URL
+          value: "https://rg-aeroinbox-prod.vault.azure.net/"
         - name: APPLICATIONINSIGHTS_CONNECTION_STRING
           value: "InstrumentationKey=placeholder-key"
 ---
@@ -137,11 +142,12 @@ spec:
     metadata:
       labels:
         app: ai-service
+        azure.workload.identity/use: "true"
     spec:
-      serviceAccountName: default-sa
+      serviceAccountName: api-service-sa
       containers:
       - name: ai-service
-        image: aeroinboxacr.azurecr.io/ai-service:latest
+        image: acraeroinboxprod.azurecr.io/ai-service:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
@@ -153,6 +159,8 @@ spec:
             cpu: 1000m
             memory: 1024Mi
         env:
+        - name: AZURE_KEYVAULT_URL
+          value: "https://rg-aeroinbox-prod.vault.azure.net/"
         - name: APPLICATIONINSIGHTS_CONNECTION_STRING
           value: "InstrumentationKey=placeholder-key"
 ---
@@ -172,11 +180,12 @@ spec:
     metadata:
       labels:
         app: rule-engine-service
+        azure.workload.identity/use: "true"
     spec:
-      serviceAccountName: default-sa
+      serviceAccountName: api-service-sa
       containers:
       - name: rule-engine-service
-        image: aeroinboxacr.azurecr.io/rule-engine:latest
+        image: acraeroinboxprod.azurecr.io/rule-engine:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
@@ -188,6 +197,20 @@ spec:
             cpu: 500m
             memory: 256Mi
         env:
+        - name: AZURE_KEYVAULT_URL
+          value: "https://rg-aeroinbox-prod.vault.azure.net/"
+        - name: DB_HOST
+          value: "pg-aeroinbox-prod.postgres.database.azure.com"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_USER
+          value: "id-aeroinbox-prod"
+        - name: DB_NAME
+          value: "aeroinbox"
+        - name: DB_SSL
+          value: "true"
+        - name: DB_AUTH_METHOD
+          value: "entra"
         - name: APPLICATIONINSIGHTS_CONNECTION_STRING
           value: "InstrumentationKey=placeholder-key"
 ---
@@ -212,7 +235,7 @@ spec:
       serviceAccountName: meeting-service-sa
       containers:
       - name: meeting-service
-        image: aeroinboxacr.azurecr.io/meeting-service:latest
+        image: acraeroinboxprod.azurecr.io/meeting-service:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
@@ -224,14 +247,16 @@ spec:
             cpu: 500m
             memory: 512Mi
         env:
+        - name: AZURE_KEYVAULT_URL
+          value: "https://rg-aeroinbox-prod.vault.azure.net/"
         - name: AI_SERVICE_URL
           value: "http://ai-service:8000"
         - name: DB_HOST
-          value: "aeroinbox-pg.postgres.database.azure.com"
+          value: "pg-aeroinbox-prod.postgres.database.azure.com"
         - name: DB_PORT
           value: "5432"
         - name: DB_USER
-          value: "meeting_service_identity"
+          value: "id-aeroinbox-prod"
         - name: DB_NAME
           value: "aeroinbox"
         - name: DB_SSL
@@ -239,7 +264,10 @@ spec:
         - name: DB_AUTH_METHOD
           value: "entra"
         - name: SERVICE_BUS_CONNECTION_STRING
-          value: "Endpoint=sb://aeroinbox-sb.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=placeholder-key"
+          valueFrom:
+            secretKeyRef:
+              name: meeting-service-secrets
+              key: service-bus-connection-string
         - name: SERVICE_BUS_QUEUE_NAME
           value: "meeting-reminders"
         - name: APPLICATIONINSIGHTS_CONNECTION_STRING

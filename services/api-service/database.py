@@ -44,7 +44,7 @@ class PostgresPoolManager:
             ssl=ssl_arg,
             min_size=2,
             max_size=10,
-            max_connection_lifetime=1800.0, # Recycle connections every 30 mins
+            max_inactive_connection_lifetime=1800.0, # Recycle idle connections every 30 mins
         )
         logger.info("PostgreSQL connection pool initialized for api-service.")
 
