@@ -165,9 +165,9 @@ For hosting the React SPA frontend client:
 
 ---
 
-## Step 11: Configure Key Vault Secrets (UI)
+### Step 11: Configure Key Vault Secrets (UI)
 Ensure your backend microservices can securely retrieve credentials without hardcoding:
-1. Navigate to your created **Key Vault** (`kv-aeroinbox-prod`) in the portal.
+1. Navigate to your created **Key Vault** (`kv-aeroinbox-prod` or `rg-aeroinbox-prod`) in the portal.
 2. Click on **Objects -> Secrets** in the left sidebar, and click **+ Generate/Import**.
 3. Create the following secrets:
    * **`google-client-id`**: Your Google OAuth Web Client ID.
@@ -175,6 +175,7 @@ Ensure your backend microservices can securely retrieve credentials without hard
    * **`session-secret`**: A random 32-character string for signing cookie sessions.
    * **`postgres-password`**: The password used for PostgreSQL access (if using hybrid user/password auth).
    * **`gemini-api-key`**: Your Google Gemini API Key.
+   * **`azure-openai-key`**: Your Azure OpenAI API Key.
    * **`redis-password`**: Leave blank (if passwordless) or set your Redis access key.
 
 ---
@@ -185,10 +186,12 @@ For passwordless auth to Key Vault and PostgreSQL, you must bind your Kubernetes
 ### 1. Assign Roles to Managed Identity:
 1. Navigate to your **Key Vault** -> **Access control (IAM)** -> **Add role assignment**.
    * Role: **Key Vault Secrets User**.
-   * Assign access to: **Managed Identity**.
-   * Select your AKS Managed Identity (e.g., `aks-aeroinbox-prod-agentpool` or `id-aeroinbox-prod`).
+   * Assign access to: **User-assigned managed identity**.
+   * Select your User-Assigned Managed Identity **`id-aeroinbox-prod`** (which is federated to your Kubernetes service accounts).
+     > [!IMPORTANT]
+     > Ensure the role is assigned to the specific user-assigned identity `id-aeroinbox-prod`, not the cluster agentpool identity.
 2. Navigate to your **PostgreSQL Flexible Server** -> **Microsoft Entra Manager**.
-   * Ensure your Managed Identity is registered as an authorized Entra database user account.
+   * Register your Managed Identity `id-aeroinbox-prod` as an authorized Entra database Administrator or user account.
 
 ### 2. Federate Kubernetes Service Account:
 To let AKS pods trade their Kubernetes tokens for Azure tokens, run these commands (or configure them under the Managed Identity's **Federated credentials** tab in the Portal):
@@ -261,7 +264,7 @@ Compile your microservices on your local machine and push them to your Azure Con
    ```bash
    kubectl get nodes
    ```
-3. Update the placeholders in [deployments.yaml](file:///c:/Users/ASUS/OneDrive/Desktop/Ai_Assistan_Email/k8s/deployments.yaml) (e.g., replacement values for `client-id` and database server strings).
+3. Update the placeholders in [deployments.yaml](file:///c:/Users/ASUS/OneDrive/Desktop/Ai_Assistan_Email/k8s/deployments.yaml) (e.g., replacement values for Key Vault URLs and database configurations).
 4. Apply the Kubernetes configurations in the exact order:
    ```bash
    # 1. Apply deployments & service accounts
@@ -270,7 +273,7 @@ Compile your microservices on your local machine and push them to your Azure Con
    # 2. Apply discovery routing services
    kubectl apply -f k8s/services.yaml
    
-   # 3. Apply ingress routing mapping (AGIC)
+   # 3. Apply ingress routing mapping (NGINX webapprouting)
    kubectl apply -f k8s/ingress.yaml
    
    # 4. Apply network policies for pod isolation
@@ -297,7 +300,7 @@ Compile your microservices on your local machine and push them to your Azure Con
    * Go to **func-aeroinbox-reminders** -> **Configuration**.
    * Add a new application setting:
      * Name: `ServiceBusConnection` | Value: *[Your Service Bus Namespace primary connection string]*
-     * Name: `API_GATEWAY_URL` | Value: *[Your public Application Gateway Ingress FQDN, e.g. https://api.aeroinbox.com]*
+     * Name: `API_GATEWAY_URL` | Value: *[Your public API gateway custom domain, e.g. https://api.aeroinbox.qzz.io]*
    * Save configurations.
 
 ---
@@ -306,34 +309,72 @@ Compile your microservices on your local machine and push them to your Azure Con
 To check if your application is successfully up and running in the cloud:
 1. List all active pods:
    ```bash
-   kubectl get pods -w
+   kubectl get pods
    ```
 2. Fetch logs from the API Gateway to monitor synchronization queries and database cache registrations:
    ```bash
-   kubectl logs deployment/api-service -f
+   kubectl logs deployment/api-service -c api-service -f
    ```
-3. Verify that calling the health check URL (`https://<your-app-gateway-ip>/health`) returns a `healthy` status.
+3. Verify that calling the health check URL (`https://api.aeroinbox.qzz.io/health`) returns a `healthy` status.
 
 ---
 
-## Step 17: External Integrations & Google OAuth Console Setup
+## Step 17: Domain Verification & Cloudflare DNS Setup
+To wire up your custom domains (frontend `aeroinbox.qzz.io` and backend `api.aeroinbox.qzz.io`) using Cloudflare:
+
+### 1. Azure Static Web App Apex Custom Domain Setup:
+1. In the Azure Portal, navigate to your Static Web App, and click on **Custom domains** in the sidebar.
+2. Click **+ Add**, select **Custom domain on other DNS**, and enter **`aeroinbox.qzz.io`**.
+3. Under **Hostname record type**, select **`TXT`** (do not select CNAME since Cloudflare flattens CNAMEs at the apex domain, which blocks SWA's validation process).
+4. Copy the generated **TXT value** code (e.g., `_93shit9...`).
+
+### 2. Configure DNS Records in Cloudflare:
+1. Go to your **Cloudflare DNS dashboard** for `aeroinbox.qzz.io`.
+2. Add the **TXT Validation Record**:
+   * **Type**: `TXT`
+   * **Name**: `@` (represents the root domain `aeroinbox.qzz.io`)
+   * **TTL**: `Auto`
+   * **Content**: Paste the validation code copied from the Azure Portal SWA screen.
+3. Add the **Frontend CNAME Record**:
+   * **Type**: `CNAME`
+   * **Name**: `@` (or `aeroinbox.qzz.io`)
+   * **Target**: *[Your SWA default hostname, e.g., `salmon-wave-07f119810.7.azurestaticapps.net`]*
+   * **Proxy status**: **Proxied** (Orange Cloud) is recommended once verified. Keep it **DNS only** (Grey Cloud) temporarily during verification if needed.
+4. Add the **Backend API A Record**:
+   * **Type**: `A`
+   * **Name**: `api` (resolves to `api.aeroinbox.qzz.io`)
+   * **Target**: *[Your AKS public Ingress IP, e.g. `70.153.121.56`]*
+   * **Proxy status**: **Proxied** (Orange Cloud).
+
+### 3. Adjust Cloudflare SSL Mode:
+* Navigate to **SSL/TLS -> Overview** in Cloudflare.
+* Set the encryption mode to **Full** or **Full (strict)**.
+  > [!IMPORTANT]
+  > You must set this to **Full** or **Full (strict)**. If set to **Flexible**, Azure SWA will enter an infinite redirect loop (`ERR_TOO_MANY_REDIRECTS`) because it automatically redirects HTTP requests to HTTPS, while Cloudflare connects to SWA over HTTP in Flexible mode.
+
+### 4. Complete Verification:
+* Go back to the Azure Portal Custom Domains screen and click **Add / Validate**. The domain status will update to **Ready**.
+
+---
+
+## Step 18: Google OAuth Console Setup
 Before you can log in, you must authorize your new cloud domains in the Google Cloud Console:
 
-1. **Get your endpoints**:
-   * **Frontend URL**: Retrieve the default domain of your Azure Static Web App (e.g. `https://blue-tree-05ccc3400.7.azurestaticapps.net`).
-   * **Backend URL**: Retrieve the public IP or custom domain pointing to your Azure Application Gateway Ingress (e.g. `https://api.aeroinbox.com`).
-2. **Configure Google Cloud Console**:
-   * Go to [Google Cloud Console](https://console.cloud.google.com).
-   * Navigate to **APIs & Services -> Credentials**.
-   * Click the edit icon for your **OAuth 2.0 Client ID** used by the application.
+1. **Configure Google Cloud Console**:
+   * Go to [Google Cloud Console Credentials Page](https://console.cloud.google.com/apis/credentials).
+   * Click the edit icon for the **OAuth 2.0 Client ID** used by the application (ensure it matches the Client ID stored in Key Vault).
    * **Authorized JavaScript origins**:
-     * Add your local dev URL: `http://localhost:5173`.
-     * Add your Static Web App domain: `https://<your-static-web-app-domain>`.
+     * Add your Static Web App domain: `https://aeroinbox.qzz.io`
+     * Add your local dev URL: `http://localhost:5173` (optional for local testing)
    * **Authorized redirect URIs**:
-     * Add your local callback: `http://localhost/auth/callback`.
-     * Add your production cloud redirect callback: `https://<your-app-gateway-domain>/auth/callback`.
-       *(Note: Google OAuth requires redirect URIs to be secure HTTPS URLs; it will reject standard HTTP public IP addresses. Ensure you configure SSL on your Application Gateway).*
-3. **Configure Frontend Environment Variable**:
-   * In [frontend/.env.production](file:///c:/Users/ASUS/OneDrive/Desktop/Ai_Assistan_Email/frontend/.env.production), update `VITE_API_URL` to point to your new backend Application Gateway domain (e.g. `https://api.aeroinbox.com`).
-   * Commit and push this change to trigger a Static Web App rebuild.
+     * Add your production cloud redirect callback: **`https://api.aeroinbox.qzz.io/auth/callback`**
+     * Add your local callback: `http://localhost/auth/callback` (optional for local testing)
+   * Click **Save**.
 
+---
+
+## Step 19: Architecture Scale Note
+> [!NOTE]
+> Since each `api-service` container pod utilizes a **local Redis sidecar** to manage session state, requests must always route to the same instance to prevent session mismatches (auto-logouts).
+> Ensure that the deployment `replicas` count is set to **`1`** in `deployments.yaml`, and the Horizontal Pod Autoscaler `minReplicas` is set to **`1`** in `hpa.yaml` when using local sidecars. 
+> To scale `api-service` horizontally to multiple pods, you should transition to a centralized, shared Azure Cache for Redis server and remove the Redis sidecar configuration.
