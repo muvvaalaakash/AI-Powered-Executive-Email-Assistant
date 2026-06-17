@@ -2,7 +2,7 @@ import os
 import re
 import logging
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from contextlib import asynccontextmanager
 import httpx
@@ -439,7 +439,7 @@ async def schedule_reminder_for_meeting(meet: Meeting):
             start_dt = datetime.fromisoformat(dt_str)
             
         if start_dt.tzinfo is None:
-            start_dt = start_dt.replace(tzinfo=datetime.timezone.utc)
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
             
         reminder_dt = start_dt - timedelta(minutes=30)
         
