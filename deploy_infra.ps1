@@ -107,7 +107,7 @@ az keyvault secret set --vault-name $KeyVaultName --name "session-secret" --valu
 az keyvault secret set --vault-name $KeyVaultName --name "postgres-password" --value $PostgresPassword
 az keyvault secret set --vault-name $KeyVaultName --name "gemini-api-key" --value "PLACEHOLDER_GEMINI_API_KEY"
 az keyvault secret set --vault-name $KeyVaultName --name "azure-openai-key" --value "PLACEHOLDER_AZURE_OPENAI_KEY"
-az keyvault secret set --vault-name $KeyVaultName --name "redis-password" --value ""
+az keyvault secret set --vault-name $KeyVaultName --name "redis-password" --value "none"
 
 Write-Host "5. Creating Container Registry (ACR): $AcrName..." -ForegroundColor Green
 az acr create --resource-group $ResourceGroup --name $AcrName --sku Standard
@@ -119,7 +119,7 @@ az redis create `
   --location $Location `
   --sku Basic `
   --vm-size c0 `
-  --enable-non-ssl-port $false
+  --enable-non-ssl-port false
 
 Write-Host "7. Creating PostgreSQL Flexible Server..." -ForegroundColor Green
 $DbSubnetId = az network vnet subnet show --resource-group $ResourceGroup --vnet-name $VNetName --name snet-db --query id -o tsv

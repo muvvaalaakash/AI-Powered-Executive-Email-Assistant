@@ -109,7 +109,7 @@ az keyvault secret set --vault-name "$KEYVAULT_NAME" --name "session-secret" --v
 az keyvault secret set --vault-name "$KEYVAULT_NAME" --name "postgres-password" --value "$POSTGRES_PASSWORD"
 az keyvault secret set --vault-name "$KEYVAULT_NAME" --name "gemini-api-key" --value "PLACEHOLDER_GEMINI_API_KEY"
 az keyvault secret set --vault-name "$KEYVAULT_NAME" --name "azure-openai-key" --value "PLACEHOLDER_AZURE_OPENAI_KEY"
-az keyvault secret set --vault-name "$KEYVAULT_NAME" --name "redis-password" --value ""
+az keyvault secret set --vault-name "$KEYVAULT_NAME" --name "redis-password" --value "none"
 
 echo "5. Creating Container Registry (ACR): $ACR_NAME..."
 az acr create --resource-group "$RESOURCE_GROUP" --name "$ACR_NAME" --sku Standard
