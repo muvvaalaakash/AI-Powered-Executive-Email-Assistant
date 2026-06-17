@@ -90,6 +90,16 @@ az role assignment create `
   --assignee $IdentityPrincipalId `
   --scope $KeyVaultId
 
+Write-Host "Assigning Key Vault Secrets Officer role to current user context..." -ForegroundColor Yellow
+$CurrentUserObjectId = az ad signed-in-user show --query id -o tsv
+az role assignment create `
+  --role "Key Vault Secrets Officer" `
+  --assignee $CurrentUserObjectId `
+  --scope $KeyVaultId
+
+Write-Host "Sleeping 15 seconds to allow RBAC assignment propagation..." -ForegroundColor Yellow
+Start-Sleep -Seconds 15
+
 Write-Host "Seeding placeholder secrets to Key Vault..." -ForegroundColor Yellow
 az keyvault secret set --vault-name $KeyVaultName --name "google-client-id" --value "PLACEHOLDER_GOOGLE_CLIENT_ID"
 az keyvault secret set --vault-name $KeyVaultName --name "google-client-secret" --value "PLACEHOLDER_GOOGLE_CLIENT_SECRET"
