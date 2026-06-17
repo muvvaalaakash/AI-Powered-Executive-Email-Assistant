@@ -112,29 +112,35 @@ az keyvault secret set --vault-name $KeyVaultName --name "redis-password" --valu
 Write-Host "5. Creating Container Registry (ACR): $AcrName..." -ForegroundColor Green
 az acr create --resource-group $ResourceGroup --name $AcrName --sku Standard
 
-Write-Host "6. Creating Cache for Redis (Basic C0)..." -ForegroundColor Green
-az redis create `
-  --resource-group $ResourceGroup `
-  --name $RedisName `
-  --location $Location `
-  --sku Basic `
-  --vm-size c0 `
-  --enable-non-ssl-port
+Write-Host "6. Skipping Azure Cache for Redis (using local container sidecar)..." -ForegroundColor Green
+# az redis create `
+#   --resource-group $ResourceGroup `
+#   --name $RedisName `
+#   --location $Location `
+#   --sku Basic `
+#   --vm-size c0 `
+#   --enable-non-ssl-port
 
-Write-Host "7. Creating PostgreSQL Flexible Server..." -ForegroundColor Green
-$DbSubnetId = az network vnet subnet show --resource-group $ResourceGroup --vnet-name $VNetName --name snet-db --query id -o tsv
+Write-Host "7. Creating PostgreSQL Flexible Server (Public Access with Firewall Control)..." -ForegroundColor Green
 
 az postgres flexible-server create `
   --resource-group $ResourceGroup `
   --name $PostgresName `
   --location $Location `
-  --vnet $VNetName `
-  --subnet $DbSubnetId `
-  --private-dns-zone "${PostgresName}.private.postgres.database.azure.com" `
   --admin-user dbadmin `
   --admin-password $PostgresPassword `
   --sku-name Standard_B1ms `
-  --tier Burstable
+  --tier Burstable `
+  --public-access Enabled `
+  --yes
+
+Write-Host "Creating firewall rule to allow Azure internal connection (AllowAllAzureIPs)..." -ForegroundColor Yellow
+az postgres flexible-server firewall-rule create `
+  --resource-group $ResourceGroup `
+  --name $PostgresName `
+  --rule-name AllowAllAzureIPs `
+  --start-ip-address 0.0.0.0 `
+  --end-ip-address 0.0.0.0
 
 Write-Host "Enabling Entra ID Auth on PostgreSQL server..." -ForegroundColor Yellow
 az postgres flexible-server update `
@@ -219,11 +225,11 @@ az staticwebapp create `
   --login-with-github
 
 Write-Host "Initiating Custom Domain Bindings on SWA..." -ForegroundColor Yellow
-az staticwebapp custom-domain create `
+az staticwebapp hostname set `
   --name $SwaName `
   --resource-group $ResourceGroup `
   --hostname aeroinbox.qzz.io `
-  --validation-method TXT
+  --validation-method dns-txt-token
 
 Write-Host "======================================================================" -ForegroundColor Cyan
 Write-Host "PROVISIONING COMPLETE!" -ForegroundColor Green

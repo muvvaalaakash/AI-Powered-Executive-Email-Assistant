@@ -114,29 +114,35 @@ az keyvault secret set --vault-name "$KEYVAULT_NAME" --name "redis-password" --v
 echo "5. Creating Container Registry (ACR): $ACR_NAME..."
 az acr create --resource-group "$RESOURCE_GROUP" --name "$ACR_NAME" --sku Standard
 
-echo "6. Creating Cache for Redis (Basic C0)..."
-az redis create \
-  --resource-group "$RESOURCE_GROUP" \
-  --name "$REDIS_NAME" \
-  --location "$LOCATION" \
-  --sku Basic \
-  --vm-size c0 \
-  --enable-non-ssl-port
+echo "6. Skipping Azure Cache for Redis (using local container sidecar)..."
+# az redis create \
+#   --resource-group "$RESOURCE_GROUP" \
+#   --name "$REDIS_NAME" \
+#   --location "$LOCATION" \
+#   --sku Basic \
+#   --vm-size c0 \
+#   --enable-non-ssl-port
 
-echo "7. Creating PostgreSQL Flexible Server..."
-DB_SUBNET_ID=$(az network vnet subnet show --resource-group "$RESOURCE_GROUP" --vnet-name "$VNET_NAME" --name snet-db --query id -o tsv)
+echo "7. Creating PostgreSQL Flexible Server (Public Access with Firewall Control)..."
 
 az postgres flexible-server create \
   --resource-group "$RESOURCE_GROUP" \
   --name "$POSTGRES_NAME" \
   --location "$LOCATION" \
-  --vnet "$VNET_NAME" \
-  --subnet "$DB_SUBNET_ID" \
-  --private-dns-zone "${POSTGRES_NAME}.private.postgres.database.azure.com" \
   --admin-user dbadmin \
   --admin-password "$POSTGRES_PASSWORD" \
   --sku-name Standard_B1ms \
-  --tier Burstable
+  --tier Burstable \
+  --public-access Enabled \
+  --yes
+
+echo "Creating firewall rule to allow Azure internal connection (AllowAllAzureIPs)..."
+az postgres flexible-server firewall-rule create \
+  --resource-group "$RESOURCE_GROUP" \
+  --name "$POSTGRES_NAME" \
+  --rule-name AllowAllAzureIPs \
+  --start-ip-address 0.0.0.0 \
+  --end-ip-address 0.0.0.0
 
 echo "Enabling Entra ID Auth on PostgreSQL server..."
 az postgres flexible-server update \
@@ -222,11 +228,11 @@ az staticwebapp create \
   --login-with-github
 
 echo "Initiating Custom Domain Bindings on SWA..."
-az staticwebapp custom-domain create \
+az staticwebapp hostname set \
   --name "$SWA_NAME" \
   --resource-group "$RESOURCE_GROUP" \
   --hostname aeroinbox.qzz.io \
-  --validation-method TXT
+  --validation-method dns-txt-token
 
 echo "======================================================================"
 echo "PROVISIONING COMPLETE!"

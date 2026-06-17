@@ -136,42 +136,40 @@ az keyvault secret set --vault-name "$KeyVaultName" --name "redis-password" --va
 az acr create --resource-group "$ResourceGroup" --name "$AcrName" --sku Standard
 ```
 
-### Step 4.2: Create Cache for Redis
-```bash
-az redis create \
-  --resource-group "$ResourceGroup" \
-  --name "$RedisName" \
-  --location "$Location" \
-  --sku Basic \
-  --vm-size c0 \
-  --enable-non-ssl-port false
-```
+### Step 4.2: Skip Azure Cache for Redis (Using Local Pod Sidecars)
+Azure Cache for Redis is skipped here because we run a local Redis container sidecar directly within the `api-service` Kubernetes pod (bound to `127.0.0.1:6379`) to manage user session boundaries efficiently. This avoids PaaS costs and subscription policy limitations. No CLI command is required for Redis provisioning.
 
 ---
 
 ## 5. PostgreSQL Database Flexible Server
 
-Create the server integrated into the VNet. Enable Entra ID authentication and map the Managed Identity.
+Create the server with public access and configure a firewall rule to allow secure internal connections from AKS pods. Enable Entra ID authentication and map the Managed Identity.
 
-### Step 5.1: Create PostgreSQL Server (VNet integrated)
+### Step 5.1: Create PostgreSQL Server (Public Access with Firewall Control)
 ```bash
-# Retrieve subnet ID
-DbSubnetId=$(az network vnet subnet show --resource-group "$ResourceGroup" --vnet-name "$VNetName" --name snet-db --query id -o tsv)
-
 az postgres flexible-server create \
   --resource-group "$ResourceGroup" \
   --name "$PostgresName" \
   --location "$Location" \
-  --vnet "$VNetName" \
-  --subnet "$DbSubnetId" \
   --admin-user dbadmin \
   --admin-password "YOUR_SECURE_POSTGRES_PASSWORD" \
   --sku-name Standard_B1ms \
   --tier Burstable \
-  --public-access None
+  --public-access Enabled
 ```
 
-### Step 5.2: Enable Entra ID Auth and Set Identity Admin
+### Step 5.2: Create Firewall Rule to Allow AKS Connections
+Allow AKS and internal resources to connect to the database server:
+```bash
+az postgres flexible-server firewall-rule create \
+  --resource-group "$ResourceGroup" \
+  --name "$PostgresName" \
+  --rule-name AllowAllAzureIPs \
+  --start-ip-address 0.0.0.0 \
+  --end-ip-address 0.0.0.0
+```
+
+### Step 5.3: Enable Entra ID Auth and Set Identity Admin
 ```bash
 # Enable Entra ID authentication
 az postgres flexible-server update \
@@ -188,7 +186,7 @@ az postgres flexible-server microsoft-entra-admin create \
   --type ServicePrincipal
 ```
 
-### Step 5.3: Create Database Resource
+### Step 5.4: Create Database Resource
 ```bash
 az postgres flexible-server db create \
   --resource-group "$ResourceGroup" \
@@ -286,11 +284,11 @@ az staticwebapp create \
 
 ### Step 8.2: Set Up Custom Domain (Cloudflare / External DNS)
 ```bash
-az staticwebapp custom-domain create \
+az staticwebapp hostname set \
   --name "$SwaName" \
   --resource-group "$ResourceGroup" \
   --hostname aeroinbox.qzz.io \
-  --validation-method TXT
+  --validation-method dns-txt-token
 ```
 *Take the generated TXT token code and place it as a `TXT` record on Cloudflare DNS mapping host `@` to the TXT value.*
 
