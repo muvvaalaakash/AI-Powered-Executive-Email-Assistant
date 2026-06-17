@@ -121,7 +121,7 @@ az redis create \
   --location "$LOCATION" \
   --sku Basic \
   --vm-size c0 \
-  --enable-non-ssl-port false
+  --enable-non-ssl-port
 
 echo "7. Creating PostgreSQL Flexible Server..."
 DB_SUBNET_ID=$(az network vnet subnet show --resource-group "$RESOURCE_GROUP" --vnet-name "$VNET_NAME" --name snet-db --query id -o tsv)

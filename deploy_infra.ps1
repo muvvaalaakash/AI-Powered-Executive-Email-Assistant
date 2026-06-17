@@ -119,7 +119,7 @@ az redis create `
   --location $Location `
   --sku Basic `
   --vm-size c0 `
-  --enable-non-ssl-port false
+  --enable-non-ssl-port
 
 Write-Host "7. Creating PostgreSQL Flexible Server..." -ForegroundColor Green
 $DbSubnetId = az network vnet subnet show --resource-group $ResourceGroup --vnet-name $VNetName --name snet-db --query id -o tsv
