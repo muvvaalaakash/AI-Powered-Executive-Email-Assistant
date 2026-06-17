@@ -133,8 +133,7 @@ az postgres flexible-server create `
   --admin-user dbadmin `
   --admin-password $PostgresPassword `
   --sku-name Standard_B1ms `
-  --tier Burstable `
-  --public-access None
+  --tier Burstable
 
 Write-Host "Enabling Entra ID Auth on PostgreSQL server..." -ForegroundColor Yellow
 az postgres flexible-server update `
@@ -154,7 +153,7 @@ Write-Host "Creating 'aeroinbox' PostgreSQL database..." -ForegroundColor Yellow
 az postgres flexible-server db create `
   --resource-group $ResourceGroup `
   --server-name $PostgresName `
-  --database-name aeroinbox
+  --name aeroinbox
 
 Write-Host "8. Creating Service Bus Queue Namespace & Queue..." -ForegroundColor Green
 az servicebus namespace create `
@@ -176,7 +175,7 @@ az aks create `
   --resource-group $ResourceGroup `
   --name $AksName `
   --node-count 1 `
-  --node-vm-size Standard_B2s `
+  --node-vm-size Standard_B2s_v2 `
   --network-plugin azure `
   --vnet-subnet-id $AksSubnetId `
   --attach-acr $AcrName `

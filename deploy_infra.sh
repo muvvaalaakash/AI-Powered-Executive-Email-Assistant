@@ -135,8 +135,7 @@ az postgres flexible-server create \
   --admin-user dbadmin \
   --admin-password "$POSTGRES_PASSWORD" \
   --sku-name Standard_B1ms \
-  --tier Burstable \
-  --public-access None
+  --tier Burstable
 
 echo "Enabling Entra ID Auth on PostgreSQL server..."
 az postgres flexible-server update \
@@ -156,7 +155,7 @@ echo "Creating 'aeroinbox' PostgreSQL database..."
 az postgres flexible-server db create \
   --resource-group "$RESOURCE_GROUP" \
   --server-name "$POSTGRES_NAME" \
-  --database-name aeroinbox
+  --name aeroinbox
 
 echo "8. Creating Service Bus Queue Namespace & Queue..."
 az servicebus namespace create \
@@ -178,7 +177,7 @@ az aks create \
   --resource-group "$RESOURCE_GROUP" \
   --name "$AKS_NAME" \
   --node-count 1 \
-  --node-vm-size Standard_B2s \
+  --node-vm-size Standard_B2s_v2 \
   --network-plugin azure \
   --vnet-subnet-id "$AKS_SUBNET_ID" \
   --attach-acr "$ACR_NAME" \
