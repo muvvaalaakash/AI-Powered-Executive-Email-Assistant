@@ -130,6 +130,7 @@ az postgres flexible-server create `
   --location $Location `
   --vnet $VNetName `
   --subnet $DbSubnetId `
+  --private-dns-zone "${PostgresName}.private.postgres.database.azure.com" `
   --admin-user dbadmin `
   --admin-password $PostgresPassword `
   --sku-name Standard_B1ms `
@@ -178,6 +179,8 @@ az aks create `
   --node-vm-size Standard_B2s_v2 `
   --network-plugin azure `
   --vnet-subnet-id $AksSubnetId `
+  --service-cidr 10.240.0.0/16 `
+  --dns-service-ip 10.240.0.10 `
   --attach-acr $AcrName `
   --enable-oidc-issuer `
   --enable-workload-identity `
