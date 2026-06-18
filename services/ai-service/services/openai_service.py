@@ -505,7 +505,7 @@ def analyze_emails_bulk(emails: list[dict]) -> dict[str, EmailAnalysisItem]:
         bulk_data = BulkEmailAnalysis.model_validate(data_normalized)
         
         for item in bulk_data.analyses:
-            orig_email = next((e for e in emails_to_analyze if e.get("id") == item.id), None)
+            orig_email = next((e for e in emails_to_analyze if str(e.get("id")).strip().lower() == str(item.id).strip().lower()), None)
             if orig_email:
                 body_snippet = (orig_email.get("body") or orig_email.get("snippet") or "")[:1200]
                 content_str = f"{orig_email.get('sender')}|{orig_email.get('subject')}|{body_snippet}"
@@ -514,7 +514,20 @@ def analyze_emails_bulk(emails: list[dict]) -> dict[str, EmailAnalysisItem]:
                     set_cached_email(h, json.dumps(item.model_dump()))
                 except Exception:
                     pass
-            results[item.id] = item
+                results[orig_email.get("id")] = item
+            else:
+                results[item.id] = item
+
+        # Index-based fallback mapping for any unmapped input emails
+        unmapped_emails = [e for e in emails_to_analyze if e.get("id") not in results]
+        if unmapped_emails:
+            mapped_item_ids = {item.id for item in results.values()}
+            unmapped_analyses = [item for item in bulk_data.analyses if item.id not in mapped_item_ids]
+            for i, email in enumerate(unmapped_emails):
+                if i < len(unmapped_analyses):
+                    item = unmapped_analyses[i]
+                    item.id = email.get("id")
+                    results[email.get("id")] = item
             
         return results
 

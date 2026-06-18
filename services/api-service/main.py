@@ -81,6 +81,7 @@ async def process_email(payload: dict):
     import json
     email_id = payload.get("email_id")
     email_content = payload.get("email_content")
+    user_id = payload.get("user_id") or payload.get("account_email")
     
     # Forward only content to ai-service
     ai_payload = {"email_content": email_content}
@@ -128,7 +129,8 @@ async def process_email(payload: dict):
                         email_id
                     )
                     rule_score = existing["rule_score"] if existing else 0
-                    user_id = existing["user_id"] if existing else "unknown"
+                    if not user_id:
+                        user_id = existing["user_id"] if existing else "unknown"
                     
                     final_score = ai_score + rule_score
                     if final_score >= 70:

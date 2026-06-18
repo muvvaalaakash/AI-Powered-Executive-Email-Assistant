@@ -392,8 +392,11 @@ async def fetch_and_prioritize_emails(
                         
                     email["final_score"] = final_score
                 
-                # Save new evaluations in background
-                background_tasks.add_task(save_emails_to_cache, uncached_unread_emails)
+                # Save new evaluations in background only if AI Service call succeeded
+                if isinstance(ai_res, httpx.Response) and ai_res.status_code == 200:
+                    background_tasks.add_task(save_emails_to_cache, uncached_unread_emails)
+                else:
+                    logger.warning("Skipping DB cache write for unread emails due to transient AI service failure.")
                 
             except Exception as e:
                 logger.error(f"Error during orchestrator batch evaluation: {str(e)}")
@@ -638,12 +641,13 @@ async def generate_email_tasks_in_background(emails: List[dict], accounts: List[
                         except Exception as ex:
                             logger.error(f"Failed to insert AI task: {str(ex)}")
 
-            # 2. Check no-reply status
-            no_reply_title = f"Reply to: {subject}"
-            if (email_id, "email_no_reply", no_reply_title) not in existing_tasks:
-                # Add to threads we need to check
-                thread_emails.append(email)
-                thread_checks.append(check_reply_task(client, email, token))
+            # 2. Check no-reply status (only for emails classified as Critical, High, or Medium priority)
+            if email.get("final_priority") in ("Critical", "High", "Medium"):
+                no_reply_title = f"Reply to: {subject}"
+                if (email_id, "email_no_reply", no_reply_title) not in existing_tasks:
+                    # Add to threads we need to check
+                    thread_emails.append(email)
+                    thread_checks.append(check_reply_task(client, email, token))
 
         if thread_checks:
             results = await asyncio.gather(*thread_checks)

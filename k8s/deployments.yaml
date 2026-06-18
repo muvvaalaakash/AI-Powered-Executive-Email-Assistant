@@ -4,7 +4,7 @@ metadata:
   name: api-service-sa
   namespace: default
   annotations:
-    azure.workload.identity/client-id: "8dff3c1f-64d3-4b9c-ae1e-f9347b8ab1ce"
+    azure.workload.identity/client-id: "7fa7bff6-f2d8-4246-8302-f57ec184b4bc"
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -12,7 +12,7 @@ metadata:
   name: meeting-service-sa
   namespace: default
   annotations:
-    azure.workload.identity/client-id: "8dff3c1f-64d3-4b9c-ae1e-f9347b8ab1ce"
+    azure.workload.identity/client-id: "7fa7bff6-f2d8-4246-8302-f57ec184b4bc"
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -54,7 +54,7 @@ spec:
             memory: 512Mi
         env:
         - name: AZURE_KEYVAULT_URL
-          value: "https://rg-aeroinbox-prod.vault.azure.net/"
+          value: "https://kv-aeroinbox-prod.vault.azure.net/"
         - name: FRONTEND_URL
           value: "https://aeroinbox.qzz.io"
         - name: GOOGLE_REDIRECT_URI
@@ -68,7 +68,7 @@ spec:
         - name: MEETING_SERVICE_URL
           value: "http://meeting-service:8000"
         - name: DB_HOST
-          value: "pg-aeroinbox-prod.postgres.database.azure.com"
+          value: "pg-aeroinbox-public.postgres.database.azure.com"
         - name: DB_PORT
           value: "5432"
         - name: DB_USER
@@ -135,7 +135,7 @@ spec:
             memory: 512Mi
         env:
         - name: AZURE_KEYVAULT_URL
-          value: "https://rg-aeroinbox-prod.vault.azure.net/"
+          value: "https://kv-aeroinbox-prod.vault.azure.net/"
         - name: APPLICATIONINSIGHTS_CONNECTION_STRING
           value: "InstrumentationKey=placeholder-key"
 ---
@@ -173,7 +173,7 @@ spec:
             memory: 1024Mi
         env:
         - name: AZURE_KEYVAULT_URL
-          value: "https://rg-aeroinbox-prod.vault.azure.net/"
+          value: "https://kv-aeroinbox-prod.vault.azure.net/"
         - name: AI_PROVIDER
           value: "azure_openai"
         - name: AZURE_OPENAI_ENDPOINT
@@ -219,9 +219,9 @@ spec:
             memory: 256Mi
         env:
         - name: AZURE_KEYVAULT_URL
-          value: "https://rg-aeroinbox-prod.vault.azure.net/"
+          value: "https://kv-aeroinbox-prod.vault.azure.net/"
         - name: DB_HOST
-          value: "pg-aeroinbox-prod.postgres.database.azure.com"
+          value: "pg-aeroinbox-public.postgres.database.azure.com"
         - name: DB_PORT
           value: "5432"
         - name: DB_USER
@@ -269,11 +269,11 @@ spec:
             memory: 512Mi
         env:
         - name: AZURE_KEYVAULT_URL
-          value: "https://rg-aeroinbox-prod.vault.azure.net/"
+          value: "https://kv-aeroinbox-prod.vault.azure.net/"
         - name: AI_SERVICE_URL
           value: "http://ai-service:8000"
         - name: DB_HOST
-          value: "pg-aeroinbox-prod.postgres.database.azure.com"
+          value: "pg-aeroinbox-public.postgres.database.azure.com"
         - name: DB_PORT
           value: "5432"
         - name: DB_USER
