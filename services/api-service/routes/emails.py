@@ -49,8 +49,8 @@ async def save_emails_to_cache(emails: List[dict]):
         INSERT INTO prioritized_emails (
             email_id, user_id, rule_score, matched_rules, ai_summary, ai_priority, ai_reply,
             is_spam_false_positive, spam_analysis_reason, is_meeting_request, has_deadline, deadline_date,
-            final_priority, final_score
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            final_priority, final_score, action_items
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         ON CONFLICT (email_id) DO UPDATE SET
             rule_score = EXCLUDED.rule_score,
             matched_rules = EXCLUDED.matched_rules,
@@ -63,13 +63,15 @@ async def save_emails_to_cache(emails: List[dict]):
             has_deadline = EXCLUDED.has_deadline,
             deadline_date = EXCLUDED.deadline_date,
             final_priority = EXCLUDED.final_priority,
-            final_score = EXCLUDED.final_score;
+            final_score = EXCLUDED.final_score,
+            action_items = EXCLUDED.action_items;
     """
     for email in emails:
         rule_analysis = email.get("rule_analysis") or {}
         ai_analysis = email.get("ai_analysis") or {}
         
         matched_rules_json = json.dumps(rule_analysis.get("matched_rules", []))
+        action_items_json = json.dumps(ai_analysis.get("action_items", []))
         
         try:
             await pg_db.execute(
@@ -87,7 +89,8 @@ async def save_emails_to_cache(emails: List[dict]):
                 ai_analysis.get("has_deadline", False) if ai_analysis else False,
                 ai_analysis.get("deadline_date") if ai_analysis else None,
                 email.get("final_priority", "Low"),
-                email.get("final_score", 0)
+                email.get("final_score", 0),
+                action_items_json
             )
         except Exception as e:
             logger.error(f"Failed to cache email {email.get('id')} to database: {str(e)}")
@@ -262,6 +265,14 @@ async def fetch_and_prioritize_emails(
                     }
                     
                     if db_row["ai_priority"] is not None:
+                        action_items = db_row.get("action_items")
+                        if isinstance(action_items, str):
+                            try:
+                                action_items = json.loads(action_items)
+                            except Exception:
+                                action_items = []
+                        elif not isinstance(action_items, list):
+                            action_items = []
                         email["ai_analysis"] = {
                             "summary": db_row["ai_summary"],
                             "priority": db_row["ai_priority"],
@@ -270,7 +281,8 @@ async def fetch_and_prioritize_emails(
                             "spam_analysis_reason": db_row["spam_analysis_reason"],
                             "is_meeting_request": db_row["is_meeting_request"],
                             "has_deadline": db_row["has_deadline"],
-                            "deadline_date": db_row["deadline_date"]
+                            "deadline_date": db_row["deadline_date"],
+                            "action_items": action_items
                         }
                     else:
                         email["ai_analysis"] = None
@@ -335,7 +347,8 @@ async def fetch_and_prioritize_emails(
                             "spam_analysis_reason": ai_info.get("spam_analysis_reason", ""),
                             "is_meeting_request": ai_info.get("is_meeting_request", False),
                             "has_deadline": ai_info.get("has_deadline", False),
-                            "deadline_date": ai_info.get("deadline_date", "")
+                            "deadline_date": ai_info.get("deadline_date", ""),
+                            "action_items": ai_info.get("action_items", [])
                         }
                     else:
                         email["ai_analysis"] = None
@@ -402,6 +415,10 @@ async def fetch_and_prioritize_emails(
     read_emails.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
     
     sorted_emails = unread_emails + read_emails
+    
+    # Auto-generate tasks from unread emails in background
+    background_tasks.add_task(generate_email_tasks_in_background, unread_emails, payload.accounts)
+    
     return GetEmailsResponse(emails=sorted_emails, refreshed_tokens=refreshed_tokens)
 
 @router.get("/search", response_model=GetEmailsResponse)
@@ -541,6 +558,120 @@ async def search_emails(
     all_emails.sort(key=lambda x: (priority_order.get(x.get("final_priority")), x.get("timestamp", 0)), reverse=True)
     
     return GetEmailsResponse(emails=all_emails, refreshed_tokens=refreshed_tokens)
+
+async def generate_email_tasks_in_background(emails: List[dict], accounts: List[AccountPayload]):
+    """
+    Scans unread emails for AI action items or no-reply threads, creating tasks in user_tasks.
+    """
+    if not emails:
+        return
+        
+    from database import db as pg_db
+    email_ids = [e.get("id") for e in emails]
+    
+    try:
+        # Fetch existing tasks to prevent duplicates
+        rows = await pg_db.fetch(
+            "SELECT email_id, task_source, title FROM user_tasks WHERE email_id = ANY($1::varchar[])",
+            email_ids
+        )
+        existing_tasks = {(r["email_id"], r["task_source"], r["title"]) for r in rows}
+    except Exception as e:
+        logger.error(f"Failed to fetch existing tasks: {str(e)}")
+        existing_tasks = set()
+        
+    # We will gather all thread check tasks
+    thread_checks = []
+    thread_emails = []
+    
+    async def check_reply_task(client: httpx.AsyncClient, email: dict, token: str):
+        thread_id = email.get("thread_id")
+        if not thread_id:
+            return None
+        try:
+            res = await client.get(
+                f"{settings.GMAIL_SERVICE_URL}/threads/{thread_id}/has-reply",
+                params={"access_token": token},
+                timeout=10.0
+            )
+            if res.status_code == 200:
+                return res.json().get("has_reply", False)
+        except Exception as e:
+            logger.error(f"Failed to check reply status for thread {thread_id}: {str(e)}")
+        return False
+
+    async with httpx.AsyncClient() as client:
+        for email in emails:
+            email_id = email.get("id")
+            user_id = email.get("account_email", "unknown")
+            subject = email.get("subject", "No Subject")
+            sender = email.get("sender", "Unknown Sender")
+            
+            # Find account token
+            token = next((acc.access_token for acc in accounts if acc.email == user_id), None)
+            if not token:
+                continue
+
+            # 1. Check AI action items
+            ai_analysis = email.get("ai_analysis")
+            if ai_analysis and isinstance(ai_analysis, dict):
+                action_items = ai_analysis.get("action_items", [])
+                for item in action_items:
+                    if not item or not item.strip():
+                        continue
+                    # Unique check
+                    if (email_id, "email_action_item", item) not in existing_tasks:
+                        try:
+                            await pg_db.execute(
+                                """
+                                INSERT INTO user_tasks (user_id, task_source, email_id, title, description, status)
+                                VALUES ($1, $2, $3, $4, $5, $6)
+                                """,
+                                user_id,
+                                "email_action_item",
+                                email_id,
+                                item,
+                                f"Extracted from email from {sender} subject: '{subject}'",
+                                "pending"
+                            )
+                            logger.info(f"Created AI action item task for email {email_id}: {item}")
+                        except Exception as ex:
+                            logger.error(f"Failed to insert AI task: {str(ex)}")
+
+            # 2. Check no-reply status
+            no_reply_title = f"Reply to: {subject}"
+            if (email_id, "email_no_reply", no_reply_title) not in existing_tasks:
+                # Add to threads we need to check
+                thread_emails.append(email)
+                thread_checks.append(check_reply_task(client, email, token))
+
+        if thread_checks:
+            results = await asyncio.gather(*thread_checks)
+            for email, has_reply in zip(thread_emails, results):
+                if has_reply is False:
+                    # Create no reply task
+                    email_id = email.get("id")
+                    user_id = email.get("account_email", "unknown")
+                    subject = email.get("subject", "No Subject")
+                    sender = email.get("sender", "Unknown Sender")
+                    no_reply_title = f"Reply to: {subject}"
+                    
+                    try:
+                        await pg_db.execute(
+                            """
+                            INSERT INTO user_tasks (user_id, task_source, email_id, title, description, status)
+                            VALUES ($1, $2, $3, $4, $5, $6)
+                            """,
+                            user_id,
+                            "email_no_reply",
+                            email_id,
+                            no_reply_title,
+                            f"You have not replied to this email thread from {sender}.",
+                            "pending"
+                        )
+                        logger.info(f"Created No-Reply task for email {email_id}: {no_reply_title}")
+                    except Exception as ex:
+                        logger.error(f"Failed to insert No-Reply task: {str(ex)}")
 
 async def perform_gmail_action(
     id: str,

@@ -90,6 +90,7 @@ async def fetch_emails(access_token: str, include_read: bool = False, max_result
             ).execute()
             
             label_ids = detail.get('labelIds', [])
+            thread_id = detail.get('threadId', '')
             
             # Skip if message is in Trash or not in Inbox/Spam folders
             if 'TRASH' in label_ids:
@@ -120,7 +121,8 @@ async def fetch_emails(access_token: str, include_read: bool = False, max_result
                 "body": body,
                 "read_status": read_status,
                 "folder": folder,
-                "timestamp": internal_date
+                "timestamp": internal_date,
+                "thread_id": thread_id
             })
             
         return email_list
@@ -208,6 +210,7 @@ async def search_emails(access_token: str, q: str, max_results: int = 15):
             ).execute()
             
             label_ids = detail.get('labelIds', [])
+            thread_id = detail.get('threadId', '')
             
             # Skip if message is in Trash
             if 'TRASH' in label_ids:
@@ -236,7 +239,8 @@ async def search_emails(access_token: str, q: str, max_results: int = 15):
                 "body": body,
                 "read_status": read_status,
                 "folder": folder,
-                "timestamp": internal_date
+                "timestamp": internal_date,
+                "thread_id": thread_id
             })
             
         return email_list
@@ -267,4 +271,21 @@ async def search_emails(access_token: str, q: str, max_results: int = 15):
             status_code=500,
             detail=f"Failed to search emails: {str(e)}"
         )
+
+
+async def check_thread_has_reply(access_token: str, thread_id: str) -> bool:
+    """
+    Checks if a thread has any reply sent by the user (meaning a message in the thread has the 'SENT' label).
+    """
+    service = get_gmail_service(access_token)
+    try:
+        thread = service.users().threads().get(userId='me', id=thread_id).execute()
+        messages = thread.get('messages', [])
+        for msg in messages:
+            if 'SENT' in msg.get('labelIds', []):
+                return True
+        return False
+    except Exception:
+        # Fall back to False if thread cannot be fetched
+        return False
 

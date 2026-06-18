@@ -114,4 +114,34 @@ async def initialize_db():
     """
     await db.execute(query_table)
     await db.execute("CREATE INDEX IF NOT EXISTS idx_prioritized_emails_user ON prioritized_emails(user_id);")
-    logger.info("Database prioritized_emails table and indexes initialized.")
+    await db.execute("ALTER TABLE prioritized_emails ADD COLUMN IF NOT EXISTS action_items JSONB DEFAULT '[]'::jsonb;")
+
+    query_tasks = """
+        CREATE TABLE IF NOT EXISTS user_tasks (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            task_source VARCHAR(50) NOT NULL, -- 'manual', 'email_action_item', 'email_no_reply'
+            email_id VARCHAR(255),            -- Linked email message ID (if any)
+            title TEXT NOT NULL,
+            description TEXT,
+            due_date TIMESTAMP WITH TIME ZONE,
+            status VARCHAR(50) DEFAULT 'pending', -- 'pending', 'completed', 'dismissed'
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+    """
+    await db.execute(query_tasks)
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_user_tasks_user ON user_tasks(user_id);")
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_user_tasks_email ON user_tasks(email_id);")
+
+    query_settings = """
+        CREATE TABLE IF NOT EXISTS user_settings (
+            user_id VARCHAR(255) PRIMARY KEY,
+            reminder_interval_hours INT DEFAULT 2, -- Default 2 hours
+            last_reminder_sent_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+    """
+    await db.execute(query_settings)
+
+    logger.info("Database prioritized_emails, user_tasks, and user_settings tables and indexes initialized.")

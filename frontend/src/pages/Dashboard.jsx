@@ -60,10 +60,21 @@ export default function Dashboard() {
   const [pendingMeetings, setPendingMeetings] = useState([]);
   const [meetingsLoading, setMeetingsLoading] = useState(false);
 
-  // 30-Second Reminders Polling Loop
+  // Task Board state
+  const [tasks, setTasks] = useState([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskDesc, setNewTaskDesc] = useState("");
+  const [newTaskDueDate, setNewTaskDueDate] = useState("");
+  const [reminderInterval, setReminderInterval] = useState(2);
+  const [activeTaskReminder, setActiveTaskReminder] = useState(null);
+
+  // 30-Second Reminders Polling Loop (Meetings & Tasks)
   useEffect(() => {
     const pollReminders = async () => {
       const userEmail = activeEmailFilter || localStorage.getItem("user_email") || "executive@gmail.com";
+      
+      // 1. Poll meetings
       try {
         const response = await API.get("/meetings/reminders/pending", {
           params: { user_id: userEmail }
@@ -76,6 +87,21 @@ export default function Dashboard() {
         }
       } catch (err) {
         console.error("Failed to poll pending reminders:", err);
+      }
+
+      // 2. Poll tasks
+      try {
+        const response = await API.get("/tasks/reminders/pending", {
+          params: { user_id: userEmail }
+        });
+        const pendingTasks = response.data || [];
+        if (pendingTasks.length > 0) {
+          setActiveTaskReminder(pendingTasks);
+        } else {
+          setActiveTaskReminder(null);
+        }
+      } catch (err) {
+        console.error("Failed to poll pending task reminders:", err);
       }
     };
 
@@ -389,6 +415,7 @@ export default function Dashboard() {
         const contentToProcess =
           selectedEmail.body || selectedEmail.snippet || selectedEmail.subject;
         const response = await API.post("/ai/process", {
+          email_id: emailId,
           email_content: contentToProcess,
         });
 
@@ -417,6 +444,9 @@ export default function Dashboard() {
   useEffect(() => {
     if (activeSection === "meetings") {
       fetchMeetings();
+    } else if (activeSection === "tasks") {
+      fetchTasks();
+      fetchSettings();
     }
   }, [activeSection, activeEmailFilter]);
 
@@ -611,6 +641,390 @@ export default function Dashboard() {
       ...prev,
       custom_keywords: prev.custom_keywords.filter((k) => k !== kw),
     }));
+  };
+
+  const fetchTasks = async () => {
+    const userEmail = activeEmailFilter || localStorage.getItem("user_email") || "executive@gmail.com";
+    setTasksLoading(true);
+    try {
+      const response = await API.get("/tasks", { params: { user_id: userEmail } });
+      setTasks(response.data || []);
+    } catch (err) {
+      console.error("Failed to fetch tasks:", err);
+    } finally {
+      setTasksLoading(false);
+    }
+  };
+
+  const fetchSettings = async () => {
+    const userEmail = activeEmailFilter || localStorage.getItem("user_email") || "executive@gmail.com";
+    try {
+      const response = await API.get("/tasks/settings", { params: { user_id: userEmail } });
+      if (response.data) {
+        setReminderInterval(response.data.reminder_interval_hours);
+      }
+    } catch (err) {
+      console.error("Failed to fetch task settings:", err);
+    }
+  };
+
+  const saveSettings = async (interval) => {
+    const userEmail = activeEmailFilter || localStorage.getItem("user_email") || "executive@gmail.com";
+    try {
+      await API.post("/tasks/settings", {
+        user_id: userEmail,
+        reminder_interval_hours: parseInt(interval)
+      });
+      setReminderInterval(parseInt(interval));
+    } catch (err) {
+      console.error("Failed to save task settings:", err);
+    }
+  };
+
+  const handleCreateTask = async (e) => {
+    e.preventDefault();
+    if (!newTaskTitle.trim()) return;
+    const userEmail = activeEmailFilter || localStorage.getItem("user_email") || "executive@gmail.com";
+    try {
+      const response = await API.post("/tasks", {
+        user_id: userEmail,
+        title: newTaskTitle,
+        description: newTaskDesc,
+        due_date: newTaskDueDate ? new Date(newTaskDueDate).toISOString() : null
+      });
+      setTasks((prev) => [response.data, ...prev]);
+      setNewTaskTitle("");
+      setNewTaskDesc("");
+      setNewTaskDueDate("");
+    } catch (err) {
+      console.error("Failed to create task:", err);
+    }
+  };
+
+  const handleUpdateTaskStatus = async (taskId, newStatus) => {
+    try {
+      const response = await API.put(`/tasks/${taskId}`, { status: newStatus });
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? response.data : t))
+      );
+    } catch (err) {
+      console.error("Failed to update task status:", err);
+    }
+  };
+
+  const handleDeleteTask = async (taskId) => {
+    try {
+      await API.delete(`/tasks/${taskId}`);
+      setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    } catch (err) {
+      console.error("Failed to delete task:", err);
+    }
+  };
+
+  const renderTasksDashboard = () => {
+    if (tasksLoading) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center space-y-3 bg-slate-50 dark:bg-[#090d16]/30">
+          <div className="h-8 w-8 rounded-full border-4 border-indigo-500/10 border-t-indigo-505 animate-spin"></div>
+          <span className="text-xs text-slate-500 font-semibold">
+            Loading Tasks Board...
+          </span>
+        </div>
+      );
+    }
+
+    const pending = tasks.filter((t) => t.status === "pending");
+    const completed = tasks.filter((t) => t.status === "completed");
+    const dismissed = tasks.filter((t) => t.status === "dismissed");
+
+    const getSourceBadge = (source) => {
+      switch (source) {
+        case "email_action_item":
+          return (
+            <span className="px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 text-[9px] font-bold">
+              ✉️ AI Action Item
+            </span>
+          );
+        case "email_no_reply":
+          return (
+            <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-[9px] font-bold">
+              ⏳ Unreplied Email
+            </span>
+          );
+        default:
+          return (
+            <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700/50 text-[9px] font-bold">
+              👤 Manual
+            </span>
+          );
+      }
+    };
+
+    const handleOpenLinkedEmail = (emailId) => {
+      const email = emails.find((e) => e.id === emailId);
+      if (email) {
+        setSelectedEmail(email);
+        setActiveSection(email.folder === "SPAM" ? "spam" : "inbox");
+      } else {
+        alert("Associated email could not be located in this page view.");
+      }
+    };
+
+    return (
+      <div className="flex-1 flex flex-col bg-slate-50 dark:bg-[#090d16]/30 min-w-0 transition-colors duration-150 p-6 overflow-y-auto space-y-6">
+        {/* Header and Reminder Settings */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between pb-4 border-b border-slate-200 dark:border-slate-800/60 space-y-4 md:space-y-0">
+          <div>
+            <h1 className="text-xl font-extrabold text-slate-800 dark:text-white">
+              Personal Assistant Tasks Board
+            </h1>
+            <p className="text-xs text-slate-500 dark:text-slate-450 mt-1 font-medium">
+              Organize manual tasks and AI task lists extracted from your emails.
+            </p>
+          </div>
+          <div className="flex items-center space-x-3 bg-white dark:bg-[#0e1424]/40 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2 shadow-sm">
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              Reminder Interval:
+            </span>
+            <select
+              value={reminderInterval}
+              onChange={(e) => saveSettings(e.target.value)}
+              className="bg-transparent text-xs font-bold text-slate-700 dark:text-white outline-none border-none cursor-pointer"
+            >
+              <option value="1">Every 1 Hour</option>
+              <option value="2">Every 2 Hours (Default)</option>
+              <option value="4">Every 4 Hours</option>
+              <option value="0">Disabled</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Task Creator Form & Tasks List Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* Add Task Creator Form */}
+          <div className="lg:col-span-1 bg-white dark:bg-[#0d1322] border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4 h-fit">
+            <h3 className="text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+              Add New Task
+            </h3>
+            <form onSubmit={handleCreateTask} className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 dark:text-slate-405 uppercase">
+                  Task Title *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Task title"
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 dark:text-slate-405 uppercase">
+                  Description
+                </label>
+                <textarea
+                  placeholder="Optional description"
+                  value={newTaskDesc}
+                  onChange={(e) => setNewTaskDesc(e.target.value)}
+                  rows={3}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-indigo-500 outline-none resize-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 dark:text-slate-405 uppercase">
+                  Due Date
+                </label>
+                <input
+                  type="datetime-local"
+                  value={newTaskDueDate}
+                  onChange={(e) => setNewTaskDueDate(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full py-2 bg-indigo-600 hover:bg-indigo-505 text-xs font-bold text-white rounded-lg transition-all shadow-md shadow-indigo-600/10 cursor-pointer"
+              >
+                Create Task
+              </button>
+            </form>
+          </div>
+
+          {/* Columns Section */}
+          <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Column: Pending */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider flex items-center space-x-2">
+                  <span>📥 Pending</span>
+                  <span className="px-1.5 py-0.5 rounded-full bg-indigo-600/10 text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                    {pending.length}
+                  </span>
+                </h3>
+              </div>
+              <div className="space-y-3 overflow-y-auto max-h-[600px] pr-1">
+                {pending.length === 0 ? (
+                  <div className="p-8 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-[10px] text-slate-400 dark:text-slate-600 font-medium">
+                    No pending tasks.
+                  </div>
+                ) : (
+                  pending.map((task) => (
+                    <div
+                      key={task.id}
+                      className="bg-white dark:bg-[#0d1322] border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-3 hover:border-slate-300 dark:hover:border-slate-700/80 transition-all group"
+                    >
+                      <div className="flex items-start justify-between">
+                        {getSourceBadge(task.task_source)}
+                        {task.due_date && (
+                          <span className="text-[9px] font-bold text-rose-500">
+                            ⏳ {new Date(task.due_date).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-xs font-extrabold text-slate-800 dark:text-white leading-snug break-words">
+                          {task.title}
+                        </h4>
+                        {task.description && (
+                          <p className="text-[10px] text-slate-500 dark:text-slate-450 leading-relaxed break-words font-medium">
+                            {task.description}
+                          </p>
+                        )}
+                      </div>
+                      
+                      {task.email_id && (
+                        <button
+                          onClick={() => handleOpenLinkedEmail(task.email_id)}
+                          className="inline-flex items-center space-x-1.5 text-[9px] font-bold text-indigo-500 dark:text-indigo-400 hover:underline cursor-pointer"
+                        >
+                          <span>Open Associated Email</span>
+                          <span>→</span>
+                        </button>
+                      )}
+
+                      <div className="flex space-x-2 pt-1.5 border-t border-slate-100 dark:border-slate-800/40">
+                        <button
+                          onClick={() => handleUpdateTaskStatus(task.id, "completed")}
+                          className="flex-1 py-1 px-2 rounded bg-emerald-500/10 hover:bg-emerald-500/15 text-emerald-600 dark:text-emerald-450 text-[9px] font-bold border border-emerald-500/20 transition-colors cursor-pointer"
+                        >
+                          Complete
+                        </button>
+                        <button
+                          onClick={() => handleUpdateTaskStatus(task.id, "dismissed")}
+                          className="flex-1 py-1 px-2 rounded bg-slate-100 hover:bg-slate-200/50 dark:bg-slate-800 dark:hover:bg-slate-800/85 text-slate-500 dark:text-slate-400 text-[9px] font-bold border border-slate-200 dark:border-slate-700/50 transition-colors cursor-pointer"
+                        >
+                          Not Necessary
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Column: Completed */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-extrabold text-emerald-500 dark:text-emerald-400 uppercase tracking-wider flex items-center space-x-2">
+                  <span>✅ Completed</span>
+                  <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-xs font-bold text-emerald-600 dark:text-emerald-450">
+                    {completed.length}
+                  </span>
+                </h3>
+              </div>
+              <div className="space-y-3 overflow-y-auto max-h-[600px] pr-1">
+                {completed.length === 0 ? (
+                  <div className="p-8 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-[10px] text-slate-400 dark:text-slate-600 font-medium">
+                    No completed tasks.
+                  </div>
+                ) : (
+                  completed.map((task) => (
+                    <div
+                      key={task.id}
+                      className="bg-white dark:bg-[#0d1322] border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-3 opacity-65 group"
+                    >
+                      <div className="flex items-start justify-between">
+                        {getSourceBadge(task.task_source)}
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-xs font-extrabold text-slate-700 dark:text-slate-300 leading-snug line-through break-words">
+                          {task.title}
+                        </h4>
+                      </div>
+                      <div className="flex space-x-2 pt-1 border-t border-slate-100 dark:border-slate-800/40">
+                        <button
+                          onClick={() => handleUpdateTaskStatus(task.id, "pending")}
+                          className="flex-1 py-1 px-2 rounded bg-indigo-500/10 hover:bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 text-[9px] font-bold border border-indigo-500/20 transition-colors cursor-pointer"
+                        >
+                          Restore
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTask(task.id)}
+                          className="flex-1 py-1 px-2 rounded bg-rose-500/10 hover:bg-rose-500/15 text-rose-500 dark:text-rose-455 text-[9px] font-bold border border-rose-500/20 transition-colors cursor-pointer"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Column: Dismissed */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center space-x-2">
+                  <span>🗑️ Not Necessary</span>
+                  <span className="px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400">
+                    {dismissed.length}
+                  </span>
+                </h3>
+              </div>
+              <div className="space-y-3 overflow-y-auto max-h-[600px] pr-1">
+                {dismissed.length === 0 ? (
+                  <div className="p-8 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-[10px] text-slate-400 dark:text-slate-600 font-medium">
+                    No dismissed tasks.
+                  </div>
+                ) : (
+                  dismissed.map((task) => (
+                    <div
+                      key={task.id}
+                      className="bg-white dark:bg-[#0d1322] border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-3 opacity-65 group"
+                    >
+                      <div className="flex items-start justify-between">
+                        {getSourceBadge(task.task_source)}
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-xs font-extrabold text-slate-700 dark:text-slate-300 leading-snug break-words">
+                          {task.title}
+                        </h4>
+                      </div>
+                      <div className="flex space-x-2 pt-1 border-t border-slate-100 dark:border-slate-800/40">
+                        <button
+                          onClick={() => handleUpdateTaskStatus(task.id, "pending")}
+                          className="flex-1 py-1 px-2 rounded bg-indigo-500/10 hover:bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 text-[9px] font-bold border border-indigo-500/20 transition-colors cursor-pointer"
+                        >
+                          Restore
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTask(task.id)}
+                          className="flex-1 py-1 px-2 rounded bg-rose-500/10 hover:bg-rose-500/15 text-rose-500 dark:text-rose-455 text-[9px] font-bold border border-rose-500/20 transition-colors cursor-pointer"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const renderMeetingsDashboard = () => {
@@ -893,6 +1307,8 @@ export default function Dashboard() {
         <div className="flex-1 flex min-h-0">
           {activeSection === "meetings" ? (
             renderMeetingsDashboard()
+          ) : activeSection === "tasks" ? (
+            renderTasksDashboard()
           ) : (
             <>
               {/* LEFT PANEL: Email List Column */}
@@ -992,7 +1408,7 @@ export default function Dashboard() {
                         isSelected={selectedEmail?.id === email.id}
                         onClick={() => setSelectedEmail(email)}
                         aiInsights={
-                          email.ai_analysis || aiInsightsCache[email.id]
+                          aiInsightsCache[email.id] || email.ai_analysis
                         }
                       />
                     ))}
@@ -1545,6 +1961,69 @@ export default function Dashboard() {
                 className="flex-1 py-2 rounded-lg border border-slate-250 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-650 dark:text-slate-350 transition-colors cursor-pointer"
               >
                 Acknowledge
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Personal Assistant Tasks Alert Modal */}
+      {activeTaskReminder && activeTaskReminder.length > 0 && (
+        <div className="fixed inset-0 bg-slate-950/60 dark:bg-black/70 flex items-center justify-center p-6 z-50 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#0d1322] rounded-2xl border border-slate-200 dark:border-slate-800 w-full max-w-md shadow-2xl p-6 overflow-hidden flex flex-col space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center space-x-3 text-amber-500 dark:text-amber-400 text-left">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+              </span>
+              <h3 className="text-xs font-extrabold uppercase tracking-wider">
+                Personal Assistant Alert
+              </h3>
+            </div>
+            
+            <div className="space-y-2 text-left">
+              <h2 className="text-sm font-extrabold text-slate-800 dark:text-white leading-snug">
+                You have {activeTaskReminder.length} pending task{activeTaskReminder.length > 1 ? "s" : ""} requiring attention!
+              </h2>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                Keep on top of your schedule and unreplied emails.
+              </p>
+            </div>
+            
+            <div className="max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/40 p-1 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-800 text-left">
+              {activeTaskReminder.slice(0, 3).map((task) => (
+                <div key={task.id} className="py-2.5 px-3 first:pt-1 last:pb-1">
+                  <div className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                    {task.title}
+                  </div>
+                  {task.description && (
+                    <div className="text-[10px] text-slate-500 dark:text-slate-455 truncate">
+                      {task.description}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {activeTaskReminder.length > 3 && (
+                <div className="py-2 px-3 text-[10px] text-slate-450 dark:text-slate-500 font-semibold italic text-center">
+                  + {activeTaskReminder.length - 3} more tasks...
+                </div>
+              )}
+            </div>
+            
+            <div className="flex space-x-3 pt-2">
+              <button
+                onClick={() => {
+                  setActiveSection("tasks");
+                  setActiveTaskReminder(null);
+                }}
+                className="flex-1 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-505 text-xs font-bold text-white text-center transition-all cursor-pointer shadow-lg shadow-indigo-500/10"
+              >
+                Go to Tasks Board
+              </button>
+              <button
+                onClick={() => setActiveTaskReminder(null)}
+                className="flex-1 py-2.5 rounded-lg border border-slate-250 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-650 dark:text-slate-350 transition-colors cursor-pointer"
+              >
+                Dismiss
               </button>
             </div>
           </div>

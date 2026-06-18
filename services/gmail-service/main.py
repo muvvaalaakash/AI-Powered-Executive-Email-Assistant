@@ -134,6 +134,15 @@ async def modify_labels(id: str, payload: ModifyLabelsRequest):
         remove_labels=payload.remove_labels
     )
 
+@app.get("/threads/{thread_id}/has-reply")
+async def check_reply(thread_id: str, access_token: str):
+    """
+    Checks if a thread has any reply sent by the user.
+    """
+    from services.gmail_service import check_thread_has_reply
+    has_reply = await check_thread_has_reply(access_token, thread_id)
+    return {"thread_id": thread_id, "has_reply": has_reply}
+
 @app.get("/health")
 async def health():
     """

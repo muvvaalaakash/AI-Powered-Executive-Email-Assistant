@@ -12,7 +12,7 @@ security = HTTPBearer()
 
 class AccountPayload(BaseModel):
     email: str
-    access_token: str
+    access_token: str = ""
     refresh_token: str = ""
 
 async def get_session_accounts(credentials: HTTPAuthorizationCredentials = Depends(security)) -> List[AccountPayload]:

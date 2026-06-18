@@ -10,6 +10,7 @@ from typing import Optional
 import google.generativeai as genai
 from pydantic import BaseModel, Field
 from fastapi import HTTPException
+from config import settings
 
 db_path = os.getenv("CACHE_DATABASE_PATH", "ai_cache.db")
 
@@ -101,6 +102,7 @@ class EmailAnalysis(BaseModel):
     is_meeting_request: bool = Field(description="True if this is a calendar invite, meeting request, call scheduler, or request to meet.")
     has_deadline: bool = Field(description="True if a task deadline or urgent date is mentioned in the email.")
     deadline_date: Optional[str] = Field(default="", description="The specific deadline date/time or timeframe (e.g. 'Friday at noon', 'June 10') if present.")
+    action_items: list[str] = Field(default_factory=list, description="List of specific tasks or action items requested from the user in this email.")
 
 class EmailAnalysisItem(BaseModel):
     id: str = Field(description="The unique message ID of the email being analyzed.")
@@ -112,6 +114,7 @@ class EmailAnalysisItem(BaseModel):
     is_meeting_request: bool = Field(description="True if this is a calendar invite, meeting request, call scheduler, or request to meet.")
     has_deadline: bool = Field(description="True if a task deadline or urgent date is mentioned in the email.")
     deadline_date: Optional[str] = Field(default="", description="The specific deadline date/time or timeframe (e.g. 'Friday at noon', 'June 10') if present.")
+    action_items: list[str] = Field(default_factory=list, description="List of specific tasks or action items requested from the user in this email.")
 
 class BulkEmailAnalysis(BaseModel):
     analyses: list[EmailAnalysisItem] = Field(description="List of email analyses matching the input email IDs.")
@@ -214,17 +217,17 @@ def query_llm(system_instruction: str, prompt: str, schema_class=None) -> str:
     Routes query to LLM provider resolved from environment.
     Priority: Azure OpenAI -> Azure AI Foundry -> OpenAI -> Gemini (default)
     """
-    provider = os.getenv("AI_PROVIDER", "").lower()
+    provider = os.getenv("AI_PROVIDER", "").lower() or settings.AI_PROVIDER.lower()
     
-    azure_openai_key = os.getenv("AZURE_OPENAI_API_KEY", "")
-    azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "")
-    azure_openai_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "")
+    azure_openai_key = settings.AZURE_OPENAI_API_KEY or os.getenv("AZURE_OPENAI_API_KEY", "")
+    azure_openai_endpoint = settings.AZURE_OPENAI_ENDPOINT or os.getenv("AZURE_OPENAI_ENDPOINT", "")
+    azure_openai_deployment = settings.AZURE_OPENAI_DEPLOYMENT_NAME or os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "")
     
-    azure_ai_key = os.getenv("AZURE_AI_FOUNDRY_API_KEY", "")
-    azure_ai_endpoint = os.getenv("AZURE_AI_FOUNDRY_ENDPOINT", "")
+    azure_ai_key = settings.AZURE_AI_FOUNDRY_API_KEY or os.getenv("AZURE_AI_FOUNDRY_API_KEY", "")
+    azure_ai_endpoint = settings.AZURE_AI_FOUNDRY_ENDPOINT or os.getenv("AZURE_AI_FOUNDRY_ENDPOINT", "")
     
-    openai_key = os.getenv("OPENAI_API_KEY", "")
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    openai_key = settings.OPENAI_API_KEY or os.getenv("OPENAI_API_KEY", "")
+    gemini_key = settings.GEMINI_API_KEY or os.getenv("GEMINI_API_KEY", "")
     
     if not provider:
         if azure_openai_key and azure_openai_endpoint and azure_openai_deployment:
@@ -385,7 +388,8 @@ def analyze_email_content(email_content: str) -> EmailAnalysis:
         "5. spam_analysis_reason: If the email is a spam false positive, give a brief 1-sentence reason (e.g. 'Legitimate business query from client').\n"
         "6. is_meeting_request: True if this is a calendar invite, meeting request, call scheduler, or request to meet.\n"
         "7. has_deadline: True if a task deadline or urgent date is mentioned in the email.\n"
-        "8. deadline_date: The specific deadline date/time or timeframe (e.g. 'Friday at noon', 'June 10') if present."
+        "8. deadline_date: The specific deadline date/time or timeframe (e.g. 'Friday at noon', 'June 10') if present.\n"
+        "9. action_items: A list of specific actionable tasks/to-do items requested from the user in this email. If none, return an empty list."
     )
 
     try:
@@ -471,7 +475,8 @@ def analyze_emails_bulk(emails: list[dict]) -> dict[str, EmailAnalysisItem]:
         "5. spam_analysis_reason: A brief explanation why the email is legitimate (if it is a false positive in SPAM).\n"
         "6. is_meeting_request: Set to true if the email is a calendar invitation, call scheduling request, or suggestion to meet.\n"
         "7. has_deadline: Set to true if a specific date or timeframe for a task/action is mentioned.\n"
-        "8. deadline_date: The specific deadline date/time extracted if present."
+        "8. deadline_date: The specific deadline date/time extracted if present.\n"
+        "9. action_items: A list of specific actionable tasks/to-do items requested from the user in this email. If none, return an empty list."
     )
 
     try:
@@ -483,6 +488,20 @@ def analyze_emails_bulk(emails: list[dict]) -> dict[str, EmailAnalysisItem]:
         json_str = extract_json_block(raw_res)
         data = json.loads(json_str)
         data_normalized = lowercase_keys(data)
+        
+        # Robust normalization for Pydantic BulkEmailAnalysis schema
+        if isinstance(data_normalized, list):
+            data_normalized = {"analyses": data_normalized}
+        elif isinstance(data_normalized, dict) and "analyses" not in data_normalized:
+            # If the keys of the dict are email IDs and values are dicts, convert to list
+            analyses_list = []
+            for k, v in data_normalized.items():
+                if isinstance(v, dict):
+                    if "id" not in v:
+                        v["id"] = k
+                    analyses_list.append(v)
+            data_normalized = {"analyses": analyses_list}
+            
         bulk_data = BulkEmailAnalysis.model_validate(data_normalized)
         
         for item in bulk_data.analyses:

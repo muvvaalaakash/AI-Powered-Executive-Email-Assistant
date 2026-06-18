@@ -121,6 +121,31 @@ export default function Sidebar({
           </button>
 
           <button
+            onClick={() => setActiveSection("tasks")}
+            className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg border text-left font-medium text-sm transition-all cursor-pointer ${
+              activeSection === "tasks"
+                ? "bg-indigo-600/10 border-indigo-500/20 text-indigo-600 dark:text-indigo-400"
+                : "border-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800/30"
+            }`}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.5}
+              stroke="currentColor"
+              className="w-5 h-5"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 12h3.75M9 15h3.375M9 9h3.375m-.1 3.248a3.75 3.75 0 1 1 0-5.996m0 5.996a3.75 3.75 0 0 1 0-5.996M12 18.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z"
+              />
+            </svg>
+            <span>Tasks Board</span>
+          </button>
+
+          <button
             onClick={onOpenRules}
             className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg border border-transparent text-left font-medium text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800/30 transition-all cursor-pointer"
           >
