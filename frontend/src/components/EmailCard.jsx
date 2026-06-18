@@ -26,7 +26,7 @@ export default function EmailCard({ email, isSelected, onClick, aiInsights }) {
   };
 
   // Obtain priority class. Unread prioritizations come from backend, read defaults to None
-  const priority = email.final_priority || aiInsights?.priority;
+  const priority = aiInsights?.priority || email.final_priority;
   const isUnread = email.read_status === "unread";
 
   // AI flags
