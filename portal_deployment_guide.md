@@ -278,10 +278,23 @@ Compile your microservices on your local machine and push them to your Azure Con
    
    # 4. Apply network policies for pod isolation
    kubectl apply -f k8s/network-policies.yaml
-   
-   # 5. Apply Horizontal Pod Autoscaler (HPA) rules
-   kubectl apply -f k8s/hpa.yaml
-   ```
+      # 5. Apply Horizontal Pod Autoscaler (HPA) rules
+    kubectl apply -f k8s/hpa.yaml
+    ```
+
+### 5. Managing Updates & Deployments on B-series Nodes (B2s constraint)
+> [!WARNING]
+> Because the standard dev cluster is running on a single-node `Standard_B2s` pool with strict CPU requests (to minimize costs), standard rolling updates (`kubectl rollout restart` or continuous delivery updates) will fail due to **"Insufficient CPU"** requests on the node.
+> To redeploy a microservice update successfully:
+> 1. Scale down the deployment to `0` replicas:
+>    ```bash
+>    kubectl scale deployment/[service-name] --replicas=0
+>    ```
+> 2. Wait for the pod to terminate completely.
+> 3. Scale the deployment back to `1` replica:
+>    ```bash
+>    kubectl scale deployment/[service-name] --replicas=1
+>    ```
 
 ---
 
@@ -369,7 +382,12 @@ Before you can log in, you must authorize your new cloud domains in the Google C
    * **Authorized redirect URIs**:
      * Add your production cloud redirect callback: **`https://api.aeroinbox.qzz.io/auth/callback`**
      * Add your local callback: `http://localhost/auth/callback` (optional for local testing)
-   * Click **Save**.
+    * Click **Save**.
+
+2. **Configure OAuth Consent Screen Scopes**:
+   * Go to the **OAuth consent screen** settings tab.
+   * Make sure to add `https://www.googleapis.com/auth/gmail.modify` to the scopes list (instead of `gmail.readonly`), as this scope is required for mark-as-read and spam false-positive label synchronizations.
+   * If your publishing status is **Testing**, make sure to add the emails of the test users (e.g. your Gmail address) under the **Test users** section so they can authorize successfully.
 
 ---
 
