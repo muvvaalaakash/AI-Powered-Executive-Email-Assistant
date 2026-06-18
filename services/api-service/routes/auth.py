@@ -38,7 +38,7 @@ def login(session_id: Optional[str] = None):
         "client_id": settings.GOOGLE_CLIENT_ID,
         "redirect_uri": settings.GOOGLE_REDIRECT_URI,
         "response_type": "code",
-        "scope": "openid email profile https://www.googleapis.com/auth/gmail.readonly",
+        "scope": "openid email profile https://www.googleapis.com/auth/gmail.modify",
         "access_type": "offline",
         "prompt": "select_account consent",
         "state": state

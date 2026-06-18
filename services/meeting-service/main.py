@@ -289,69 +289,76 @@ async def detect_meetings_from_emails(emails: List[dict]):
                         timeout=35.0
                     )
                     
+                    ai_res = None
                     if response.status_code == 200:
                         ai_res = response.json()
-                        if ai_res.get("is_meeting"):
-                            ai_title = ai_res.get("meeting_title", subject or "Meeting")
-                            ai_platform = ai_res.get("meeting_platform", "Other")
-                            ai_url = ai_res.get("meeting_url", "")
-                            ai_organizer = ai_res.get("organizer", sender)
-                            ai_start_date = ai_res.get("start_date")
-                            ai_start_time = ai_res.get("start_time")
-                            ai_end_date = ai_res.get("end_date") or ai_start_date
-                            ai_end_time = ai_res.get("end_time")
+                    else:
+                        logger.error(f"AI service returned non-200 status code {response.status_code} for email {source_email_id}: {response.text}")
+                    
+                    is_meeting = False
+                    if ai_res and ai_res.get("is_meeting"):
+                        is_meeting = True
+                        ai_title = ai_res.get("meeting_title", subject or "Meeting")
+                        ai_platform = ai_res.get("meeting_platform", "Other")
+                        ai_url = ai_res.get("meeting_url", "")
+                        ai_organizer = ai_res.get("organizer", sender)
+                        ai_start_date = ai_res.get("start_date")
+                        ai_start_time = ai_res.get("start_time")
+                        ai_end_date = ai_res.get("end_date") or ai_start_date
+                        ai_end_time = ai_res.get("end_time")
+                        
+                        start_dt = f"{ai_start_date}T{ai_start_time}:00"
+                        end_dt = f"{ai_end_date}T{ai_end_time}:00"
+                        
+                        action_type = ai_res.get("action_type", "create")
+                        status = "Pending"  # Natural language requires user confirmation (Potential)
+                        
+                        final_url = meet_url or ai_url
+                        final_platform = platform or ai_platform
+                        if final_url:
+                            status = "Confirmed"  # Explicit meeting URL is classified as Confirmed
                             
-                            start_dt = f"{ai_start_date}T{ai_start_time}:00"
-                            end_dt = f"{ai_end_date}T{ai_end_time}:00"
+                        if action_type == "cancel" or "cancel" in ai_title.lower():
+                            status = "Cancelled"
+                        elif action_type == "update":
+                            status = "Updated"
                             
-                            action_type = ai_res.get("action_type", "create")
-                            status = "Pending"  # Natural language requires user confirmation (Potential)
-                            
-                            final_url = meet_url or ai_url
-                            final_platform = platform or ai_platform
-                            if final_url:
-                                status = "Confirmed"  # Explicit meeting URL is classified as Confirmed
-                                
-                            if action_type == "cancel" or "cancel" in ai_title.lower():
-                                status = "Cancelled"
-                            elif action_type == "update":
-                                status = "Updated"
-                                
-                            ai_parts = ai_res.get("participants", [])
-                            participants = [Participant(participant_email=p["email"], participant_name=p.get("name")) for p in ai_parts if p.get("email")]
-                            
-                            await save_or_update_meeting(
-                                user_id=user_id,
-                                source_email_id=source_email_id,
-                                source_platform="gmail",
-                                meeting_platform=final_platform,
-                                meeting_url=final_url,
-                                meeting_title=ai_title,
-                                description=body[:500],
-                                organizer=ai_organizer,
-                                start_datetime=start_dt,
-                                end_datetime=end_dt,
-                                status=status,
-                                participants=participants
-                            )
-                        elif meet_url:
-                            # Fallback if Gemini failed or said no meeting but url matched
-                            start_dt = datetime.utcnow().isoformat()
-                            end_dt = start_dt
-                            await save_or_update_meeting(
-                                user_id=user_id,
-                                source_email_id=source_email_id,
-                                source_platform="gmail",
-                                meeting_platform=platform,
-                                meeting_url=meet_url,
-                                meeting_title=subject or "Meeting Link",
-                                description=body[:500],
-                                organizer=sender,
-                                start_datetime=start_dt,
-                                end_datetime=end_dt,
-                                status="Confirmed",
-                                participants=[]
-                            )
+                        ai_parts = ai_res.get("participants", [])
+                        participants = [Participant(participant_email=p["email"], participant_name=p.get("name")) for p in ai_parts if p.get("email")]
+                        
+                        await save_or_update_meeting(
+                            user_id=user_id,
+                            source_email_id=source_email_id,
+                            source_platform="gmail",
+                            meeting_platform=final_platform,
+                            meeting_url=final_url,
+                            meeting_title=ai_title,
+                            description=body[:500],
+                            organizer=ai_organizer,
+                            start_datetime=start_dt,
+                            end_datetime=end_dt,
+                            status=status,
+                            participants=participants
+                        )
+                    
+                    if not is_meeting and meet_url:
+                        # Fallback if Gemini failed or said no meeting but url matched
+                        start_dt = datetime.utcnow().isoformat()
+                        end_dt = start_dt
+                        await save_or_update_meeting(
+                            user_id=user_id,
+                            source_email_id=source_email_id,
+                            source_platform="gmail",
+                            meeting_platform=platform,
+                            meeting_url=meet_url,
+                            meeting_title=subject or "Meeting Link",
+                            description=body[:500],
+                            organizer=sender,
+                            start_datetime=start_dt,
+                            end_datetime=end_dt,
+                            status="Confirmed",
+                            participants=[]
+                        )
             except Exception as e:
                 logger.error(f"Error processing meeting detection for email {email.get('id')}: {str(e)}")
 

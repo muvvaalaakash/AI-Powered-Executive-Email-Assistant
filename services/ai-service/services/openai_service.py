@@ -584,4 +584,8 @@ def extract_meeting_from_text(email_content: str, current_date_context: str) -> 
         return parsed_result
 
     except Exception as e:
+        import traceback
+        print(f"ERROR: Meeting extraction failed: {str(e)}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Meeting extraction failed: {str(e)}")
+
