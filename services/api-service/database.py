@@ -87,6 +87,26 @@ class PostgresPoolManager:
             pool = await self.get_pool()
             return await pool.fetch(query, *args)
 
+    async def fetchrow(self, query: str, *args):
+        pool = await self.get_pool()
+        try:
+            return await pool.fetchrow(query, *args)
+        except asyncpg.exceptions.InvalidAuthorizationSpecificationError:
+            logger.warning("Postgres Auth error encountered in api-service, refreshing pool...")
+            await self.close()
+            pool = await self.get_pool()
+            return await pool.fetchrow(query, *args)
+
+    async def fetchval(self, query: str, *args):
+        pool = await self.get_pool()
+        try:
+            return await pool.fetchval(query, *args)
+        except asyncpg.exceptions.InvalidAuthorizationSpecificationError:
+            logger.warning("Postgres Auth error encountered in api-service, refreshing pool...")
+            await self.close()
+            pool = await self.get_pool()
+            return await pool.fetchval(query, *args)
+
 db = PostgresPoolManager()
 
 async def initialize_db():
