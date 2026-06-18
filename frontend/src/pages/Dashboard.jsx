@@ -417,6 +417,7 @@ export default function Dashboard() {
         const response = await API.post("/ai/process", {
           email_id: emailId,
           email_content: contentToProcess,
+          user_id: selectedEmail.account_email,
         });
 
         setAiInsightsCache((prev) => ({
