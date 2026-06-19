@@ -221,3 +221,22 @@ resource "azurerm_public_ip" "appgw" {
   sku                 = "Standard"
   tags                = var.tags
 }
+
+# 12. Federated Identity Credentials for Workload Identity
+resource "azurerm_federated_identity_credential" "api_service" {
+  name                = "api-service-federation"
+  resource_group_name = azurerm_resource_group.main.name
+  audience            = ["api://AzureADTokenExchange"]
+  issuer              = module.aks.oidc_issuer_profile_issuer_url
+  parent_id           = module.managed_identity.resource_id
+  subject             = "system:serviceaccount:aeroinbox:api-service-sa"
+}
+
+resource "azurerm_federated_identity_credential" "meeting_service" {
+  name                = "meeting-service-federation"
+  resource_group_name = azurerm_resource_group.main.name
+  audience            = ["api://AzureADTokenExchange"]
+  issuer              = module.aks.oidc_issuer_profile_issuer_url
+  parent_id           = module.managed_identity.resource_id
+  subject             = "system:serviceaccount:aeroinbox:meeting-service-sa"
+}

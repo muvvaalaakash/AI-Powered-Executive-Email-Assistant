@@ -96,6 +96,25 @@ Once the storage account is ready, navigate to the `infrastructure-avm` director
 
 ---
 
+## Workload Identity Integration
+
+This Terraform configuration automatically provisions the **OIDC Federated Credentials** for your Kubernetes Service Accounts (`api-service-sa` and `meeting-service-sa` in the `default` namespace). This enables your microservice pods to fetch secrets passwordlessly from Azure Key Vault and authenticate with PostgreSQL.
+
+### Action Required Post-Deployment:
+After running `terraform apply`, you will receive the Managed Identity's client ID in the Terraform outputs as `managed_identity_client_id`. You **must** update the `azure.workload.identity/client-id` annotation in your [deployments.yaml](file:///c:/Users/ASUS/OneDrive/Desktop/Ai_Assistan_Email/k8s/deployments.yaml#L7-L15) file:
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-service-sa # Do the same for meeting-service-sa
+  namespace: default
+  annotations:
+    azure.workload.identity/client-id: "<INSERT_OUTPUT_managed_identity_client_id>"
+```
+
+---
+
 ## Deployed Resources Map
 
 | Service | Resource Name | Region | Description |
