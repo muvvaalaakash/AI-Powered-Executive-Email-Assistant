@@ -11,7 +11,7 @@ data:
   AI_SERVICE_URL: "http://ai-service-svc:8000"
   RULE_ENGINE_SERVICE_URL: "http://rule-engine-service-svc:8000"
   MEETING_SERVICE_URL: "http://meeting-service-svc:8000"
-  DB_HOST: "pg-aeroinbox-public.postgres.database.azure.com"
+  DB_HOST: "pg-aeroinbox-prod.postgres.database.azure.com"
   DB_PORT: "5432"
   DB_USER: "id-aeroinbox-prod"
   DB_NAME: "aeroinbox"

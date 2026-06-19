@@ -25,11 +25,10 @@ module "vnet" {
     snet-db = {
       name             = "snet-db"
       address_prefixes = ["10.0.17.0/24"]
-      delegation = [{
+      delegations = [{
         name = "pg-delegation"
         service_delegation = {
-          name    = "Microsoft.DBforPostgreSQL/flexibleServers"
-          actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
+          name = "Microsoft.DBforPostgreSQL/flexibleServers"
         }
       }]
     }
@@ -83,6 +82,24 @@ module "acr" {
 }
 
 # 5. PostgreSQL Flexible Server: Azure Verified Module
+# 5a. Private DNS Zone for PostgreSQL Flexible Server
+resource "azurerm_private_dns_zone" "postgresql" {
+  name                = "${var.project_name}-postgres-dns.private.postgres.database.azure.com"
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = var.tags
+}
+
+# Link Private DNS Zone to the VNet
+resource "azurerm_private_dns_zone_virtual_network_link" "postgresql" {
+  name                  = "link-postgres-dns-to-vnet"
+  resource_group_name   = azurerm_resource_group.main.name
+  private_dns_zone_name = azurerm_private_dns_zone.postgresql.name
+  virtual_network_id    = module.vnet.resource_id
+  registration_enabled  = false
+  tags                  = var.tags
+}
+
+# 5. PostgreSQL Flexible Server: Azure Verified Module
 module "postgresql" {
   source              = "Azure/avm-res-dbforpostgresql-flexibleserver/azurerm"
   version             = "0.2.2"
@@ -94,6 +111,15 @@ module "postgresql" {
   server_version      = "15"
 
   delegated_subnet_id = module.vnet.subnets["snet-db"].resource_id
+  private_dns_zone_id = azurerm_private_dns_zone.postgresql.id
+
+  authentication = {
+    active_directory_auth_enabled = true
+    password_auth_enabled         = false
+    tenant_id                     = var.tenant_id
+  }
+
+  high_availability = null
 
   ad_administrator = {
     admin = {
@@ -104,20 +130,27 @@ module "postgresql" {
     }
   }
   tags = var.tags
+
+  managed_identities = {
+    user_assigned_resource_ids = [module.managed_identity.resource_id]
+  }
+
+  depends_on = [
+    azurerm_private_dns_zone_virtual_network_link.postgresql
+  ]
 }
 
 
-# 6. Redis: Azure Verified Module
-module "redis" {
-  source              = "Azure/avm-res-cache-redis/azurerm"
-  version             = "0.3.0"
+# 6. Redis: Azure Managed Redis
+resource "azurerm_managed_redis" "redis" {
+  name                = "redis-${var.project_name}-${var.environment}"
   resource_group_name = azurerm_resource_group.main.name
   location            = var.location
-  name                = "redis-${var.project_name}-${var.environment}"
-  capacity            = 0
-  sku_name            = "Basic"
-  enable_non_ssl_port = false
+  sku_name            = "Balanced_B0"
   tags                = var.tags
+
+  default_database {
+  }
 }
 
 # 7. Service Bus Namespace: Azure Verified Module
@@ -168,9 +201,14 @@ module "aks" {
 
   default_agent_pool = {
     name           = "agentpool"
-    vm_size        = "Standard_B2s"
-    count_of       = 1
+    vm_size        = "Standard_B2s_v2"
+    count_of       = 2
     vnet_subnet_id = module.vnet.subnets["snet-aks"].resource_id
+  }
+
+  network_profile = {
+    service_cidr   = "172.16.0.0/16"
+    dns_service_ip = "172.16.0.10"
   }
 
   # Ingress Web Application Routing
@@ -190,16 +228,25 @@ module "aks" {
     }
   }
 
-  # Assign AcrPull role to AKS Kubelet identity
-  role_assignments = {
-    acr_pull = {
-      principal_id               = module.aks.kubelet_identity.objectId
-      role_definition_id_or_name = "AcrPull"
-      scope                      = module.acr.resource.id
+  addon_profile_key_vault_secrets_provider = {
+    enabled = true
+  }
+
+  workload_auto_scaler_profile = {
+    keda = {
+      enabled = true
     }
   }
 
   tags = var.tags
+}
+
+# 9a. Role Assignment: Grant AKS Kubelet identity permission to pull from ACR
+resource "azurerm_role_assignment" "aks_acr_pull" {
+  principal_id                     = module.aks.kubelet_identity.objectId
+  role_definition_name             = "AcrPull"
+  scope                            = module.acr.resource.id
+  skip_service_principal_aad_check = true
 }
 
 # 10. Static Web App: Core frontend client CDN hosting

@@ -44,8 +44,8 @@ output "postgres_server_fqdn" {
 }
 
 output "redis_hostname" {
-  value       = module.redis.resource.hostname
-  description = "The hostname of the Azure Cache for Redis server"
+  value       = azurerm_managed_redis.redis.hostname
+  description = "The hostname of the Azure Managed Redis server"
   sensitive   = true
 }
 

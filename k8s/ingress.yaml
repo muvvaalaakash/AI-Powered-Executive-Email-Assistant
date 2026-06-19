@@ -3,10 +3,8 @@ kind: Ingress
 metadata:
   name: aeroinbox-ingress
   namespace: aeroinbox
-  annotations:
-    appgw.ingress.kubernetes.io/health-probe-path: "/health"
 spec:
-  ingressClassName: azure-application-gateway
+  ingressClassName: webapprouting.kubernetes.azure.com
   rules:
   - http:
       paths:
