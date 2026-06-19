@@ -1,21 +1,74 @@
-# AeroInbox Azure Portal UI Manual Deployment Guide
+# AeroInbox End-to-End Azure Deployment Guide
 
-This guide provides step-by-step instructions to manually configure and deploy the AeroInbox infrastructure, secrets, routing, and frontend client using the **Azure Portal UI** and **Cloudflare**.
+This guide provides the complete step-by-step flow to deploy AeroInbox from scratch. It covers creating the remote state storage account, running Terraform, configuring Key Vault secrets, setting up databases/workload identities, and setting up DNS routing and the frontend client.
 
 ---
 
-## 1. Azure Key Vault Settings & Secrets
+## Step 1: Create the Remote State Storage Account (via Azure Portal)
 
-### Configure Firewall Access
-If public access is restricted on your Key Vault (`kv-aeroinbox-prod`), you must authorize your computer's IP address:
-1. Go to **Key Vaults** in the Azure Portal and select **`kv-aeroinbox-prod`**.
+Before running Terraform, you must create a Storage Account to store the Terraform state file (`backend.tf`):
+
+### A. Create the Resource Group
+1. Open the [Azure Portal](https://portal.azure.com).
+2. Search for **Resource groups** and click **+ Create**.
+3. Set the details:
+   * **Subscription:** Select your subscription.
+   * **Resource group:** `rg-aeroinbox-tfstate`
+   * **Region:** `Central India` *(or your preferred region)*.
+4. Click **Review + create** -> **Create**.
+
+### B. Create the Storage Account
+1. Search for **Storage accounts** and click **+ Create**.
+2. Set the details:
+   * **Resource Group:** Select `rg-aeroinbox-tfstate`.
+   * **Storage account name:** `staeroinboxtfstate` *(must be lowercase, unique, alphanumeric only)*.
+   * **Region:** Same as your resource group.
+   * **Performance:** `Standard`
+   * **Redundancy:** `Locally-redundant storage (LRS)` *(recommended for cost savings)*.
+3. Click **Review + create** -> **Create**.
+
+### C. Create the Blob Container
+1. Navigate to the newly created storage account (`staeroinboxtfstate`).
+2. Under the **Data storage** section on the left menu, click **Containers**.
+3. Click **+ Container** at the top.
+4. Set the name to **`tfstate`**.
+5. Keep public access level as **Private (no anonymous access)**.
+6. Click **Create**.
+
+---
+
+## Step 2: Provision Infrastructure using Terraform
+
+Once the backend storage is ready, provision the resources:
+1. Open your terminal (e.g., PowerShell) and navigate to the `infrastructure-avm/` directory.
+2. Initialize Terraform to fetch modules and hook up the backend state:
+   ```powershell
+   terraform init
+   ```
+3. Generate a plan to verify the resources:
+   ```powershell
+   terraform plan -out=tfplan
+   ```
+4. Apply the configuration to deploy the VNet, AKS, Postgres, Redis, and Key Vault:
+   ```powershell
+   terraform apply tfplan
+   ```
+
+---
+
+## Step 3: Configure Azure Key Vault Settings & Secrets
+
+Since Key Vault starts with strict network security policies, you must authorize your client IP and add the necessary secrets.
+
+### A. Configure Firewall Access
+1. Search for **Key Vaults** in the portal and select **`kv-aeroinbox-prod`**.
 2. Click **Networking** in the left menu under **Settings**.
 3. Under the **Firewalls and virtual networks** tab:
-   * Keep **Allow access from** set to **Selected networks**.
+   * Select **Selected networks**.
    * Under the **Firewall** section, check the box **Add your client IP address**.
    * Click **Save** at the bottom.
 
-### Generate Secrets
+### B. Generate Secrets
 1. Go to the **Secrets** tab under **Objects** on the left menu.
 2. Click **+ Generate/Import**.
 3. Create each of the following secrets with **Upload options** set to **Manual**:
@@ -30,9 +83,8 @@ If public access is restricted on your Key Vault (`kv-aeroinbox-prod`), you must
 
 ---
 
-## 2. PostgreSQL Flexible Server Custom Database
+## Step 4: Create the PostgreSQL Flexible Server Database
 
-If you provisioned PostgreSQL Flexible Server using Terraform AVM, the server is created, but the empty target database (`aeroinbox`) must be created manually:
 1. Navigate to **Azure Database for PostgreSQL flexible servers** in the portal.
 2. Select your server (`pg-aeroinbox-prod`).
 3. Click **Databases** on the left menu under **Settings**.
@@ -42,11 +94,11 @@ If you provisioned PostgreSQL Flexible Server using Terraform AVM, the server is
 
 ---
 
-## 3. Workload Identity & Federated Credentials
+## Step 5: Configure Federated Credentials (Workload Identity)
 
-AeroInbox microservices use passwordless Entra ID authentication to talk to resources. This requires associating the AKS service accounts with your Azure Managed Identity (`id-aeroinbox-prod`):
+Associate AKS Service Accounts with your Managed Identity (`id-aeroinbox-prod`):
 
-1. Go to **Managed Identities** in the portal and select **`id-aeroinbox-prod`**.
+1. Navigate to **Managed Identities** in the portal and select **`id-aeroinbox-prod`**.
 2. Click **Federated credentials** under **Settings** on the left menu.
 3. Click **+ Add** at the top.
 4. Fill in the credentials for the API Service:
@@ -62,10 +114,9 @@ AeroInbox microservices use passwordless Entra ID authentication to talk to reso
 
 ---
 
-## 4. Cloudflare DNS Configuration
+## Step 6: Configure Cloudflare DNS
 
 ### A. Frontend (Static Web App: `aeroinbox.qzz.io`)
-To route user traffic and verify domain ownership:
 1. Log in to **Cloudflare** and navigate to your domain DNS settings.
 2. Add a **CNAME** record:
    * **Type:** `CNAME`
@@ -79,7 +130,6 @@ To route user traffic and verify domain ownership:
 4. Once added, go to **Static Web Apps** in the Azure Portal -> **Custom domains** -> click **Validate** to complete validation. You can now enable the orange cloud proxy in Cloudflare if desired.
 
 ### B. Backend (API Ingress: `api.aeroinbox.qzz.io`)
-To route API gateway traffic to your AKS NGINX ingress:
 1. In Cloudflare, add an **A** record:
    * **Type:** `A`
    * **Name:** `api`
@@ -89,7 +139,7 @@ To route API gateway traffic to your AKS NGINX ingress:
 
 ---
 
-## 5. Build & Deploy React Frontend Client
+## Step 7: Build & Deploy React Frontend Client
 
 To deploy your updated frontend React app:
 1. Open PowerShell and navigate to your `frontend/` directory.
